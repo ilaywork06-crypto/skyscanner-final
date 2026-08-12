@@ -1,0 +1,23 @@
+[project]
+name = "notification-service"
+version = "0.1.0"
+description = "The service that turns the pending notifications of the inventory into mails for the subscribers"
+requires-python = ">=3.11"
+dependencies = [
+    "skyscanner-models",
+    "skyscanner-common",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "aiosmtplib>=3.0.2",
+]
+
+[tool.uv.sources]
+skyscanner-models = { workspace = true }
+skyscanner-common = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/notification_service"]

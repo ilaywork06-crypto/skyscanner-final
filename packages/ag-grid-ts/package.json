@@ -1,0 +1,21 @@
+{
+  "name": "@skyscanner/ag-grid-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "ag-grid-community": "^33.0.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.3"
+  }
+}

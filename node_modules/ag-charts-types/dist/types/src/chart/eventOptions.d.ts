@@ -1,0 +1,101 @@
+import type { AgAnnotation } from './annotationsOptions';
+import type { Listener } from './callbackOptions';
+import type { Ratio } from './types';
+import type { AgAutoScaledAxes } from './zoomOptions';
+interface AgChartEvent<T extends string> {
+    type: T;
+    event: Event;
+}
+export interface AgPreventableEvent {
+    /** Prevent the AG Charts built-in default event handlers from running. */
+    preventDefault(): void;
+}
+export interface AgNodeClickEvent<TEvent extends string, TDatum> extends AgChartEvent<TEvent> {
+    /** Event type. */
+    type: TEvent;
+    /** Series ID, as specified in `series.id` (or generated if not specified) */
+    seriesId: string;
+    /** Datum from the chart or series data array. */
+    datum: TDatum;
+    /** xKey as specified on series options */
+    xKey?: string;
+    /** yKey as specified on series options */
+    yKey?: string;
+    /** sizeKey as specified on series options */
+    sizeKey?: string;
+    /** labelKey as specified on series options */
+    labelKey?: string;
+    /** colorKey as specified on series options */
+    colorKey?: string;
+    /** angleKey as specified on series options */
+    angleKey?: string;
+    /** calloutLabelKey as specified on series options */
+    calloutLabelKey?: string;
+    /** sectorLabelKey as specified on series options */
+    sectorLabelKey?: string;
+    /** radiusKey as specified on series options */
+    radiusKey?: string;
+}
+export interface AgSeriesVisibilityChange {
+    /** Event type. */
+    type: 'seriesVisibilityChange';
+    /** Series id */
+    seriesId: string;
+    /** Legend item id - usually yKey value for cartesian series. */
+    itemId?: string | number;
+    /** Human-readable description of the y-values. If supplied, matching items with the same value will be toggled together. */
+    legendItemName?: string;
+    /** The new visibility status that the series is changing to. */
+    visible: boolean;
+}
+export interface AgAnnotationsEvent {
+    type: 'annotations';
+    annotations?: AgAnnotation[];
+}
+export interface AgZoomEvent {
+    type: 'zoom';
+    rangeX?: AgZoomEventRange;
+    rangeY?: AgZoomEventRange;
+    ratioX: AgZoomEventRatio;
+    ratioY: AgZoomEventRatio;
+    autoScaledAxes?: AgAutoScaledAxes;
+}
+export interface AgZoomEventRange {
+    start?: Date | number;
+    end?: Date | number;
+}
+export interface AgZoomEventRatio {
+    start: Ratio;
+    end: Ratio;
+}
+export type AgChartClickEvent = AgChartEvent<'click'>;
+export type AgChartDoubleClickEvent = AgChartEvent<'doubleClick'>;
+export type AgChartContextMenuEvent = AgChartEvent<'contextMenuEvent'>;
+export type AgSeriesAreaContextMenuActionEvent = AgChartEvent<'seriesContextMenuAction'>;
+export type AgNodeContextMenuActionEvent<TDatum = any> = AgNodeClickEvent<'nodeContextMenuAction', TDatum>;
+export interface AgBaseChartListeners<TDatum> {
+    /** The listener to call when a node (marker, column, bar, tile or a pie sector) in any series is clicked.
+     *  Useful for a chart containing multiple series.
+     */
+    seriesNodeClick?: Listener<AgNodeClickEvent<'seriesNodeClick', TDatum>>;
+    /** The listener to call when a node (marker, column, bar, tile or a pie sector) in any series is double-clicked.
+     * Useful for a chart containing multiple series.*/
+    seriesNodeDoubleClick?: Listener<AgNodeClickEvent<'seriesNodeDoubleClick', TDatum>>;
+    /** The listener to call when a series visibility is changed. */
+    seriesVisibilityChange?: Listener<AgSeriesVisibilityChange>;
+    /** The listener to call when the chart is clicked. */
+    click?: Listener<AgChartClickEvent>;
+    /** The listener to call when the chart is double-clicked. */
+    doubleClick?: Listener<AgChartDoubleClickEvent>;
+    /** The listener to call when the annotations are changed. */
+    annotations?: Listener<AgAnnotationsEvent>;
+    /** The listener to call when the zoom is changed. */
+    zoom?: Listener<AgZoomEvent>;
+}
+export interface AgSeriesListeners<TDatum> {
+    /** The listener to call when a node (marker, column, bar, tile or a pie sector) in the series is clicked. */
+    nodeClick?: Listener<AgNodeClickEvent<'nodeClick', TDatum>>;
+    /** The listener to call when a node (marker, column, bar, tile or a pie sector) in the series is double-clicked. */
+    nodeDoubleClick?: Listener<AgNodeClickEvent<'nodeDoubleClick', TDatum>>;
+}
+export {};

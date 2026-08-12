@@ -1,0 +1,23 @@
+[project]
+name = "skyscanner-common"
+version = "0.1.0"
+description = "Cross service infrastructure - settings, logging, mongo access, object storage and identity"
+requires-python = ">=3.11"
+dependencies = [
+    "skyscanner-models",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "motor>=3.6.0",
+    "aioboto3>=13.2.0",
+    "fastapi>=0.115.0",
+]
+
+[tool.uv.sources]
+skyscanner-models = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skyscanner_common"]

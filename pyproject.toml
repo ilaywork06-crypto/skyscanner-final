@@ -1,0 +1,84 @@
+[project]
+name = "skyscanner"
+version = "0.1.0"
+description = "Skyscanner - event inventory, storage and analysis platform"
+requires-python = ">=3.11"
+dependencies = [
+    "skyscanner-models",
+    "skyscanner-common",
+    "ag-grid-lib",
+    "events-service",
+    "storage-service",
+    "notification-service",
+]
+
+[tool.uv.workspace]
+members = ["packages/*", "services/*"]
+exclude = ["packages/ag-grid-ts", "packages/sky-ui"]
+
+[tool.uv.sources]
+skyscanner-models = { workspace = true }
+skyscanner-common = { workspace = true }
+ag-grid-lib = { workspace = true }
+events-service = { workspace = true }
+storage-service = { workspace = true }
+notification-service = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13.0",
+    "pylint>=3.3.1",
+    "pylint-pydantic>=0.3.5",
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+    "types-aiobotocore[s3]>=2.15.0",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+warn_return_any = true
+warn_unused_ignores = false
+show_error_codes = true
+namespace_packages = true
+explicit_package_bases = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["motor.*", "aioboto3.*", "aiosmtplib.*"]
+ignore_missing_imports = true
+
+[tool.pylint.main]
+py-version = "3.11"
+jobs = 0
+ignore-paths = ['.*/\.venv/.*']
+load-plugins = ["pylint.extensions.docparams", "pylint_pydantic"]
+
+[tool.pylint.format]
+max-line-length = 120
+
+[tool.pylint."messages control"]
+disable = [
+    "too-few-public-methods",
+    "duplicate-code",
+]
+
+[tool.pylint.design]
+max-args = 12
+max-attributes = 15
+max-positional-arguments = 12
+max-returns = 12
+max-locals = 24
+
+[tool.pylint.parameter_documentation]
+accept-no-param-doc = false
+accept-no-raise-doc = false
+accept-no-return-doc = false
+default-docstring-type = "sphinx"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

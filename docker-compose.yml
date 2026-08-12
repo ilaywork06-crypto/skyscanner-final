@@ -1,0 +1,134 @@
+name: skyscanner
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--quiet"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - skyscanner
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-skyscanner}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-skyscanner-secret}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - skyscanner
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    networks:
+      - skyscanner
+
+  events-service:
+    build:
+      context: .
+      dockerfile: services/events_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: ${MONGO_DATABASE:-skyscanner}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      AUTH_ALLOW_ANONYMOUS: ${AUTH_ALLOW_ANONYMOUS:-true}
+      AUTH_ANONYMOUS_ROLES: ${AUTH_ANONYMOUS_ROLES:-admin}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - skyscanner
+
+  storage-service:
+    build:
+      context: .
+      dockerfile: services/storage_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-skyscanner-artifacts}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-skyscanner}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-skyscanner-secret}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      AUTH_ALLOW_ANONYMOUS: ${AUTH_ALLOW_ANONYMOUS:-true}
+      AUTH_ANONYMOUS_ROLES: ${AUTH_ANONYMOUS_ROLES:-admin}
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - skyscanner
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: ${MONGO_DATABASE:-skyscanner}
+      # The bundled MailHog is only the default. Pointing these at your own relay in .env is all it takes to
+      # send through it instead, including a relay that wants credentials and TLS.
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-skyscanner@example.com}
+      NOTIFICATION_POLL_INTERVAL_SECONDS: ${NOTIFICATION_POLL_INTERVAL_SECONDS:-30}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:8080,http://localhost:5173}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - skyscanner
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - events-service
+      - storage-service
+      - notification-service
+    networks:
+      - skyscanner
+
+volumes:
+  mongo-data:
+  minio-data:
+
+networks:
+  skyscanner:
+    driver: bridge
