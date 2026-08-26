@@ -110,8 +110,11 @@ class SubscriptionRepository:
         if notification.event_type_keys:
             targets.append({"event_type_key": {"$in": notification.event_type_keys}})
 
+        # A subscription is removed by being marked rather than erased, so an unsubscribe has to be read
+        # here as well or the mails would keep going out after it.
         query: dict[str, Any] = {
             "active": True,
+            "deleted": {"$ne": True},
             "triggers": notification.trigger.value,
             "$or": targets,
         }

@@ -125,7 +125,7 @@ class TemplateService:
         :raises PermissionDeniedError: When the caller does not own the template.
         """
         document = await self._require_template(template_id=template_id, user=user)
-        await self._repository.delete(identifier=document.id)
+        await self._repository.delete(identifier=document.id, user=user.username)
 
     async def _require_template(self, template_id: str, user: UserContext) -> TemplateDocument:
         """

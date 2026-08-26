@@ -28,7 +28,10 @@ class EntityTypeResponse(BaseModel):
     name: str = Field(description="Label shown for the entity type")
     description: str = Field(default="", description="Explanation of what the entity type holds")
     icon: str | None = Field(default=None, description="Icon name rendered next to the entity type")
-    industry: str | None = Field(default=None, description="Industry owning the type, empty when the type is shared")
+    industries: list[str] = Field(
+        default_factory=list,
+        description="Industries the type belongs to, empty when the type is shared by all of them",
+    )
 
 
 class EntityTypeCreateRequest(BaseModel):
@@ -42,7 +45,10 @@ class EntityTypeCreateRequest(BaseModel):
     name: str = Field(description="Label shown for the entity type")
     description: str = Field(default="", description="Explanation of what the entity type holds")
     icon: str | None = Field(default=None, description="Icon name rendered next to the entity type")
-    industry: str | None = Field(default=None, description="Industry owning the type, empty when the type is shared")
+    industries: list[str] = Field(
+        default_factory=list,
+        description="Industries the type belongs to, empty when the type is shared by all of them",
+    )
     order: int = Field(default=100, description="Relative position of the type in the selectors")
 
 
@@ -56,7 +62,7 @@ class EntityTypeUpdateRequest(BaseModel):
     name: str | None = Field(default=None, description="New label of the entity type")
     description: str | None = Field(default=None, description="New explanation of what the type holds")
     icon: str | None = Field(default=None, description="New icon rendered next to the entity type")
-    industry: str | None = Field(default=None, description="New industry owning the type")
+    industries: list[str] | None = Field(default=None, description="New industries the type belongs to")
     order: int | None = Field(default=None, description="New relative position of the type")
 
 
@@ -71,7 +77,7 @@ class EntityCreateRequest(BaseModel):
     # double click on the add button used to produce exactly that, so the name is asked for.
     name: str = Field(min_length=1, description="Name of the entity")
     entity_type_key: str = Field(description="Key of the entity type the entity is an instance of")
-    origin: str | None = Field(default=None, description="System or sensor the entity originated at")
+    module: str | None = Field(default=None, description="System or sensor module the entity came from")
     code_version: str | None = Field(default=None, description="Version of the code that produced the data")
     status: EntityStatus = Field(default=EntityStatus.RAW, description="Parsing state of the entity")
     notes: str = Field(default="", description="Free text information supplied by the user")
@@ -98,7 +104,7 @@ class EntityUpdateRequest(BaseModel):
 
     reason: str = Field(min_length=1, description="Why the change is being made, kept in the edit history")
     name: str | None = Field(default=None, description="New name of the entity")
-    origin: str | None = Field(default=None, description="New system or sensor the entity originated at")
+    module: str | None = Field(default=None, description="New system or sensor module the entity came from")
     code_version: str | None = Field(default=None, description="New version of the producing code")
     status: EntityStatus | None = Field(default=None, description="New parsing state of the entity")
     notes: str | None = Field(default=None, description="New free text information of the entity")
@@ -126,7 +132,7 @@ class EntityResponse(BaseModel):
     event_id: str = Field(description="Identifier of the event the entity belongs to")
     object_type: ObjectTypeReference = Field(description="Type definition the entity is an instance of")
     object_type_key: str = Field(default="", description="Key of the entity type, which selects the schema of the row")
-    origin: str | None = Field(default=None, description="System or sensor the entity originated at")
+    module: str | None = Field(default=None, description="System or sensor module the entity came from")
     code_version: str | None = Field(default=None, description="Version of the code that produced the data")
     status: EntityStatus = Field(default=EntityStatus.RAW, description="Parsing state of the entity")
     notes: str = Field(default="", description="Free text information supplied by the user")

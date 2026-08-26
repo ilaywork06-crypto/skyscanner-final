@@ -97,16 +97,17 @@ async def update_event(
 async def delete_event(
     event_id: str,
     service: EventServiceDependency,
-    _: Annotated[UserContext, Depends(require_permission(Permission.EVENT_DELETE))],
+    user: Annotated[UserContext, Depends(require_permission(Permission.EVENT_DELETE))],
 ) -> OperationResult:
     """
     Remove an event together with the entities nested inside it.
 
     :param event_id: Identifier of the event that is removed.
     :param service: Owner of the inventory.
+    :param user: Identity the removal is attributed to.
     :return: The acknowledgement of the removal.
     """
-    await service.delete_event(event_id=event_id)
+    await service.delete_event(event_id=event_id, user=user)
 
     return OperationResult(success=True, message="The event was removed", affected=1)
 

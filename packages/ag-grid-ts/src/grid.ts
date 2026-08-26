@@ -12,6 +12,7 @@ import {
   type ColDef,
 } from 'ag-grid-community'
 
+import { applyThemeCompatibility } from './compatibility'
 import type { CellRendererRegistry } from './parse'
 import { parseColumnDefinitions } from './parse'
 import type { GeneratedGridConfiguration, GridRow } from './types'
@@ -26,8 +27,6 @@ interface GridOptionsInput {
 
 const DETAIL_ROW_KEY = '__detail'
 const DEFAULT_DETAIL_HEIGHT = 320
-const TOOLTIP_SHOW_DELAY_MS = 200
-const TOOLTIP_HIDE_DELAY_MS = 60000
 
 let modulesRegistered = false
 
@@ -41,6 +40,20 @@ const registerGridModules = () => {
 
   ModuleRegistry.registerModules([AllCommunityModule])
   modulesRegistered = true
+}
+
+/**
+ * Give a browser without the colour function the palette the theme derived, once the theme has been written.
+ *
+ * The grid injects its generated stylesheet while it builds itself, so the rewrite is queued behind that
+ * rather than run before it. On a browser that understands the function this does nothing at all.
+ */
+const repairInjectedTheme = () => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.setTimeout(() => applyThemeCompatibility(), 0)
 }
 
 /**
@@ -88,6 +101,7 @@ const attachDetailRows = (params: PostSortRowsParams<GridRow>) => {
  */
 const buildGridOptions = (input: GridOptionsInput): GridOptions<GridRow> => {
   registerGridModules()
+  repairInjectedTheme()
 
   const columnDefs: ColDef<GridRow>[] = parseColumnDefinitions(input.configuration, {
     registry: input.registry,
@@ -109,13 +123,6 @@ const buildGridOptions = (input: GridOptionsInput): GridOptions<GridRow> => {
     animateRows: true,
     suppressCellFocus: true,
     suppressDragLeaveHidesColumns: true,
-    /*
-     * The tooltip stays on screen once it is open and accepts the pointer, so that a value which is too
-     * wide for its cell can be read in full and selected out of the tooltip.
-     */
-    tooltipInteraction: true,
-    tooltipShowDelay: TOOLTIP_SHOW_DELAY_MS,
-    tooltipHideDelay: TOOLTIP_HIDE_DELAY_MS,
     rowSelection: {
       mode: 'multiRow',
       checkboxes: true,

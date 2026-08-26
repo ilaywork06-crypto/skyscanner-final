@@ -70,15 +70,19 @@
             >
               <span class="wizard__required">*</span>Platform
               <SkyInfoIcon label="What Platform accepts">
-                Pick one of the platforms already used in the system, or type a new name to create it.
-                The list is built from the platforms of the events that exist.
+                The platforms declared for this industry on the Types page. An event that ran on several of
+                them names all of them, and a platform that is missing is declared there rather than typed here.
               </SkyInfoIcon>
             </label>
-            <v-combobox
+            <v-select
               id="platform"
-              v-model="platform"
+              v-model="platforms"
               :items="platformOptions"
-              placeholder="Enter platform"
+              item-title="name"
+              item-value="key"
+              multiple
+              chips
+              placeholder="Pick the platforms"
             />
           </div>
 
@@ -98,22 +102,26 @@
           <div class="wizard__field">
             <label
               class="wizard__label"
-              for="event-name"
+              for="event-brief"
             >
-              <span class="wizard__required">*</span>Event Name
-              <SkyInfoIcon label="What Event Name means">
-                The name this event is listed and searched by, so give it something you will recognise later.
-                It is required: an event without a name is one nobody can tell apart from the next one.
+              <span class="wizard__required">*</span>Event Brief
+              <SkyInfoIcon label="What Event Brief means">
+                The short line this event is listed and searched by, so write something you will recognise
+                later - what happened, in a few words. It is required: an event without a brief is one nobody
+                can tell apart from the next one.
               </SkyInfoIcon>
             </label>
             <v-text-field
-              id="event-name"
+              id="event-brief"
               v-model="name"
-              placeholder="Enter event name"
+              placeholder="Enter event brief"
             />
           </div>
 
-          <div class="wizard__field">
+          <div
+            v-if="asks('reference_id')"
+            class="wizard__field"
+          >
             <label
               class="wizard__label"
               for="reference-id"
@@ -136,7 +144,10 @@
             The moment the activity happened and the moment it was uploaded are two different things, so the
             date is asked for here while created at keeps recording the upload on its own.
           -->
-          <div class="wizard__field">
+          <div
+            v-if="asks('event_date')"
+            class="wizard__field"
+          >
             <label
               class="wizard__label"
               for="event-date"
@@ -148,7 +159,14 @@
             />
           </div>
 
-          <div class="wizard__field">
+          <!--
+            An experiment result only means something on a type that describes an experiment, so it is one of
+            the built in fields an event type switches on rather than one every event is asked for.
+          -->
+          <div
+            v-if="asks('experiment_result')"
+            class="wizard__field"
+          >
             <label
               class="wizard__label"
               for="experiment-result"
@@ -162,7 +180,10 @@
             />
           </div>
 
-          <div class="wizard__field wizard__field--wide">
+          <div
+            v-if="asks('notes')"
+            class="wizard__field wizard__field--wide"
+          >
             <label
               class="wizard__label"
               for="information"
@@ -181,6 +202,27 @@
             />
           </div>
 
+          <!--
+            The extra questions this event type asks beyond the built in ones. They are declared on the Types
+            page as event fields and named by the type, so a new question about an event costs a declaration
+            rather than another box wired into this form by hand.
+          -->
+          <div
+            v-if="askedCustomFields.length > 0"
+            class="wizard__field wizard__field--wide"
+          >
+            <span class="wizard__section-title">Additional Event Attributes</span>
+            <div class="wizard__custom-grid">
+              <DynamicFieldInput
+                v-for="field in askedCustomFields"
+                :key="field.id"
+                :field="field"
+                :model-value="customValues[field.key] ?? null"
+                @update:model-value="patchCustom(field, $event)"
+              />
+            </div>
+          </div>
+
           <div class="wizard__field wizard__field--wide">
             <FileDropzone
               label="Additional Files"
@@ -188,14 +230,6 @@
               @update:files="eventFiles = $event"
             />
           </div>
-        </section>
-
-        <section v-else-if="step === 2">
-          <MetadataFieldsPanel
-            v-model="industryValues"
-            :fields="industryFields"
-            title="Industry fields"
-          />
         </section>
 
         <section
@@ -207,8 +241,7 @@
               v-model="entityForm"
               :entity-types="entityTypes"
               :fields="entityFields"
-              :origins="originOptions"
-              :context="industryValues"
+              :modules="moduleOptions"
               id-prefix="wizard-entity"
             />
 
@@ -290,7 +323,7 @@
         </v-btn>
         <v-spacer />
         <v-btn
-          v-if="step < 3"
+          v-if="step < STEP_LABELS.length"
           variant="outlined"
           :disabled="!canContinue"
           @click="goNext"
@@ -317,9 +350,10 @@
 </template>
 
 <script lang="ts">
-import type { EventStatus, ExperimentResult, JsonValue } from '@/models/common'
+import type { EventStatus, ExperimentResult, FieldType, JsonValue, OptionalEventField } from '@/models/common'
 import { SkyDropzone as FileDropzone, SkyInfoIcon, toIsoDate } from '@skyscanner/sky-ui'
 import type { EntityCreateRequest, EntityType } from '@/models/entity'
+import type { Platform } from '@/models/platform'
 import type { EventDetail, EventType } from '@/models/event'
 import type { FieldDefinition } from '@/models/field'
 
@@ -343,25 +377,24 @@ interface EntityDraft {
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
+import DynamicFieldInput from '@/components/DynamicFieldInput.vue'
 import EntityFormFields, { emptyEntityForm, type EntityFormValue } from '@/components/EntityFormFields.vue'
-import MetadataFieldsPanel from '@/components/MetadataFieldsPanel.vue'
 import UnsavedChangesDialog from '@/components/UnsavedChangesDialog.vue'
 import { useDirtyGuard } from '@/composables/useDirtyGuard'
 import { useSnackbar } from '@/composables/useSnackbar'
 import { useIndustries } from '@/composables/useIndustries'
 import { createEvent } from '@/requests/events'
-import { readColumnValues } from '@/requests/grid'
-import { listEntityTypes, listEventTypes, listFields } from '@/requests/schema'
+import { listEntityTypes, listEventTypes, listFields, listPlatforms } from '@/requests/schema'
 import { uploadArtifacts } from '@/requests/storage'
-import { applicableFields } from '@/utils/dependencies'
 import { toMetadataAttributes } from '@/utils/rows'
 
-const STEP_LABELS: string[] = ['Data', 'Industry Fields', 'Add Entities']
-const STEP_TITLES: string[] = [
-  'Create An Event',
-  'Fill Industry Specific Fields',
-  'Add Entities To The Event',
-]
+/*
+ * What an event is: the data it is filed under, and the entities that hang off it. The step that used to sit
+ * between the two asked for fields an industry had declared for the event itself; nothing about an event
+ * varies by industry, so the step went with the fields and the dynamic schema now shapes the entities alone.
+ */
+const STEP_LABELS: string[] = ['Data', 'Add Entities']
+const STEP_TITLES: string[] = ['Create An Event', 'Add Entities To The Event']
 const STATUS_OPTIONS: EventStatus[] = ['draft', 'raw', 'parsed', 'partial', 'failed', 'archived']
 const RESULT_OPTIONS: ExperimentResult[] = ['successful', 'partial', 'failed']
 
@@ -376,13 +409,14 @@ const saving = ref<boolean>(false)
 
 const eventTypes = ref<EventType[]>([])
 const entityTypes = ref<EntityType[]>([])
-const industryFields = ref<FieldDefinition[]>([])
 const entityFields = ref<FieldDefinition[]>([])
-const platformOptions = ref<string[]>([])
+/* Every event field declared for this industry, of which a type asks for the ones it named. */
+const eventFields = ref<FieldDefinition[]>([])
+const platformOptions = ref<Platform[]>([])
 
 const eventTypeKey = ref<string | null>(null)
 const industry = ref<string | null>(props.defaultIndustry)
-const platform = ref<string>('')
+const platforms = ref<string[]>([])
 const status = ref<EventStatus>('raw')
 const name = ref<string>('')
 const referenceId = ref<string>('')
@@ -390,7 +424,10 @@ const eventDate = ref<string>('')
 const experimentResult = ref<ExperimentResult | null>(null)
 const notes = ref<string>('')
 const eventFiles = ref<File[]>([])
-const industryValues = ref<Record<string, JsonValue>>({})
+
+/* What was filled into the declared event fields, and the type each of those values is stored under. */
+const customValues = ref<Record<string, JsonValue>>({})
+const customTypes = ref<Record<string, FieldType>>({})
 
 const entityForm = ref<EntityFormValue>(emptyEntityForm())
 const addedEntities = ref<EntityDraft[]>([])
@@ -405,9 +442,32 @@ const eventTypeItems = computed<EventType[]>(() => eventTypes.value)
 
 const stepTitle = computed<string>(() => STEP_TITLES[step.value - 1] ?? STEP_TITLES[0])
 
-const visibleIndustryFields = computed<FieldDefinition[]>(() =>
-  applicableFields(industryFields.value, industryValues.value),
+/* The built in fields the chosen type asks for, which is what decides whether they are on the form at all. */
+const askedFields = computed<OptionalEventField[]>(
+  () => eventTypes.value.find((candidate) => candidate.key === eventTypeKey.value)?.fields ?? [],
 )
+
+const asks = (field: OptionalEventField): boolean => askedFields.value.includes(field)
+
+/* The keys of the declared event fields the chosen type asks for, in the order the type named them. */
+const askedCustomKeys = computed<string[]>(
+  () => eventTypes.value.find((candidate) => candidate.key === eventTypeKey.value)?.custom_fields ?? [],
+)
+
+/*
+ * The declarations behind those keys. A key whose declaration was removed since the type named it simply
+ * finds nothing here and is not asked for, which is what keeps a stale name off the form.
+ */
+const askedCustomFields = computed<FieldDefinition[]>(() =>
+  askedCustomKeys.value
+    .map((key) => eventFields.value.find((field) => field.key === key))
+    .filter((field): field is FieldDefinition => field !== undefined),
+)
+
+const patchCustom = (field: FieldDefinition, value: JsonValue) => {
+  customValues.value = { ...customValues.value, [field.key]: value }
+  customTypes.value = { ...customTypes.value, [field.key]: field.type }
+}
 
 /**
  * Describe the whole wizard as one comparable string.
@@ -429,21 +489,21 @@ const snapshot = (): string =>
   JSON.stringify({
     eventTypeKey: eventTypeKey.value,
     industry: industry.value,
-    platform: platform.value,
+    platforms: [...platforms.value],
     status: status.value,
     name: name.value,
     referenceId: referenceId.value,
     eventDate: eventDate.value,
     experimentResult: experimentResult.value,
     notes: notes.value,
+    customValues: { ...customValues.value },
     files: describeFiles(eventFiles.value),
-    industryValues: industryValues.value,
     entityForm: describeForm(entityForm.value),
     addedEntities: addedEntities.value.map((draft) => describeForm(draft.form)),
   })
 
-const originOptions = computed<string[]>(() =>
-  industry.value === null ? [] : (industries.value.find((item) => item.key === industry.value)?.entity_origins ?? []),
+const moduleOptions = computed<string[]>(() =>
+  industry.value === null ? [] : (industries.value.find((item) => item.key === industry.value)?.modules ?? []),
 )
 
 /* The same rule the service enforces: an entity needs a type and a name before it can be added. */
@@ -456,23 +516,13 @@ const fileCount = (entity: EntityDraft): number =>
 
 const canContinue = computed<boolean>(() => {
   if (step.value === 1) {
-    /* The name is what the event is listed and searched by, so an event without one cannot be started. */
+    /* The brief is what the event is listed and searched by, so an event without one cannot be started. */
     return (
       eventTypeKey.value !== null &&
       industry.value !== null &&
-      platform.value.length > 0 &&
+      platforms.value.length > 0 &&
       name.value.trim().length > 0
     )
-  }
-
-  if (step.value === 2) {
-    return visibleIndustryFields.value
-      .filter((field) => field.required)
-      .every((field) => {
-        const value = industryValues.value[field.key]
-
-        return value !== null && value !== undefined && String(value).length > 0
-      })
   }
 
   return true
@@ -481,16 +531,19 @@ const canContinue = computed<boolean>(() => {
 const loadSchema = async (): Promise<void> => {
   try {
     const selected = industry.value
-    const [types, entities, fields, platforms] = await Promise.all([
+    const [types, entities, declaredPlatforms, declaredEventFields] = await Promise.all([
       listEventTypes(selected),
       listEntityTypes(selected),
+      listPlatforms(selected),
       listFields({ scope: 'event', industry: selected }),
-      readColumnValues('platform'),
     ])
     eventTypes.value = types
     entityTypes.value = entities
-    industryFields.value = fields
-    platformOptions.value = platforms
+    platformOptions.value = declaredPlatforms
+    eventFields.value = declaredEventFields
+    /* A platform that the newly chosen industry was never offered cannot stay picked for it. */
+    const offered = new Set(declaredPlatforms.map((candidate) => candidate.key))
+    platforms.value = platforms.value.filter((key) => offered.has(key))
   } catch (error) {
     reportError(error)
   }
@@ -518,7 +571,7 @@ const reset = () => {
   step.value = 1
   eventTypeKey.value = null
   industry.value = props.defaultIndustry
-  platform.value = ''
+  platforms.value = []
   status.value = 'raw'
   name.value = ''
   referenceId.value = ''
@@ -526,7 +579,8 @@ const reset = () => {
   experimentResult.value = null
   notes.value = ''
   eventFiles.value = []
-  industryValues.value = {}
+  customValues.value = {}
+  customTypes.value = {}
   entityForm.value = emptyEntityForm()
   addedEntities.value = []
   editedIndex.value = null
@@ -642,7 +696,7 @@ const buildEntityRequests = async (): Promise<EntityCreateRequest[]> => {
     requests.push({
       name: draft.form.name,
       entity_type_key: draft.form.typeKey ?? '',
-      origin: draft.form.origin,
+      module: draft.form.module,
       code_version: draft.form.codeVersion.length > 0 ? draft.form.codeVersion : null,
       status: draft.form.status,
       notes: draft.form.notes,
@@ -652,7 +706,7 @@ const buildEntityRequests = async (): Promise<EntityCreateRequest[]> => {
       raw_files: raw,
       parsed_files: parsed,
       parsed_additional_files: additional,
-      metadata: toMetadataAttributes(draft.form.values),
+      metadata: toMetadataAttributes(draft.form.values, draft.form.valueTypes),
     })
   }
 
@@ -687,14 +741,14 @@ const submit = async (): Promise<void> => {
       reference_id: referenceId.value.trim(),
       event_type_keys: [eventTypeKey.value],
       industry: industry.value,
-      platform: platform.value,
+      platforms: [...platforms.value],
       status: status.value,
       experiment_result: experimentResult.value,
       event_date: toIsoDate(eventDate.value),
       notes: notes.value,
       upload_source: 'manual',
       additional_files: additionalFiles,
-      metadata: toMetadataAttributes(industryValues.value),
+      metadata: toMetadataAttributes(customValues.value, customTypes.value),
       entities,
     })
     notify(`Event ${created.name} was created`, 'success')
@@ -721,6 +775,39 @@ watch(
 
 watch(industry, loadSchema)
 watch(() => entityForm.value.typeKey, loadEntityFields)
+
+/*
+ * A field the chosen type does not ask for is not on the form, so anything typed into it before the type was
+ * changed has to go with it rather than being submitted from a box nobody can see any more.
+ */
+watch(askedFields, () => {
+  if (!asks('reference_id')) {
+    referenceId.value = ''
+  }
+  if (!asks('event_date')) {
+    eventDate.value = ''
+  }
+  if (!asks('experiment_result')) {
+    experimentResult.value = null
+  }
+  if (!asks('notes')) {
+    notes.value = ''
+  }
+})
+
+/*
+ * The declared fields go the same way as the built in ones: a value typed into a field the newly chosen type
+ * does not ask for is dropped rather than submitted from a box that is no longer on the form.
+ */
+watch(askedCustomKeys, (keys) => {
+  const asked = new Set(keys)
+  customValues.value = Object.fromEntries(
+    Object.entries(customValues.value).filter(([key]) => asked.has(key)),
+  )
+  customTypes.value = Object.fromEntries(
+    Object.entries(customTypes.value).filter(([key]) => asked.has(key)),
+  )
+})
 </script>
 
 <style scoped>
@@ -748,6 +835,18 @@ watch(() => entityForm.value.typeKey, loadEntityFields)
   min-inline-size: 0;
 }
 
+
+/* The declared fields sit under one heading rather than being scattered among the built in boxes. */
+.wizard__section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.wizard__custom-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+}
 
 .wizard__dot {
   inline-size: 1.25rem;

@@ -12,7 +12,7 @@ from pymongo import ASCENDING, IndexModel
 
 from skyscanner_common.mongo import MongoProvider
 
-from events_service.constants import ENTITY_TYPE_KIND, EVENT_TYPE_KIND, TYPES_COLLECTION
+from events_service.constants import ENTITY_TYPE_KIND, EVENT_TYPE_KIND, PLATFORM_TYPE_KIND, TYPES_COLLECTION
 from events_service.documents import TypeDocument
 from events_service.repositories.base_repository import BaseRepository
 
@@ -36,11 +36,17 @@ class TypeRepository(BaseRepository[TypeDocument]):
         """
         Create the index that keeps a type key unique inside its kind.
         """
+        await super().ensure_indexes()
         await self.create_indexes(
             [IndexModel([("kind", ASCENDING), ("key", ASCENDING)], unique=True, name="type_key_unique")],
         )
 
-    async def list_event_types(self, industry: str | None = None, offset: int = 0, limit: int = 0) -> list[TypeDocument]:
+    async def list_event_types(
+        self,
+        industry: str | None = None,
+        offset: int = 0,
+        limit: int = 0,
+    ) -> list[TypeDocument]:
         """
         Read the event types that an industry may choose from, shared ones included.
 
@@ -51,7 +57,12 @@ class TypeRepository(BaseRepository[TypeDocument]):
         """
         return await self._list_kind(kind=EVENT_TYPE_KIND, industry=industry, offset=offset, limit=limit)
 
-    async def list_entity_types(self, industry: str | None = None, offset: int = 0, limit: int = 0) -> list[TypeDocument]:
+    async def list_entity_types(
+        self,
+        industry: str | None = None,
+        offset: int = 0,
+        limit: int = 0,
+    ) -> list[TypeDocument]:
         """
         Read the entity types that an industry may choose from, shared ones included.
 
@@ -61,6 +72,22 @@ class TypeRepository(BaseRepository[TypeDocument]):
         :return: The matching entity types ordered by their relative position.
         """
         return await self._list_kind(kind=ENTITY_TYPE_KIND, industry=industry, offset=offset, limit=limit)
+
+    async def list_platforms(
+        self,
+        industry: str | None = None,
+        offset: int = 0,
+        limit: int = 0,
+    ) -> list[TypeDocument]:
+        """
+        Read the platforms that an industry may name, shared ones included.
+
+        :param industry: Industry whose own platforms are added to the shared ones.
+        :param offset: Amount of platforms skipped before collecting.
+        :param limit: Largest amount of platforms that is returned, zero for all of them.
+        :return: The matching platforms ordered by their relative position.
+        """
+        return await self._list_kind(kind=PLATFORM_TYPE_KIND, industry=industry, offset=offset, limit=limit)
 
     async def find_by_key(self, kind: str, key: str) -> TypeDocument | None:
         """
@@ -74,17 +101,20 @@ class TypeRepository(BaseRepository[TypeDocument]):
 
     async def _list_kind(self, kind: str, industry: str | None, offset: int = 0, limit: int = 0) -> list[TypeDocument]:
         """
-        Read the declarations of one kind, adding the types of an industry to the shared ones.
+        Read the declarations of one kind, adding the ones of an industry to the shared ones.
 
-        :param kind: Whether event types or entity types are read.
-        :param industry: Industry whose own types are added to the shared ones.
-        :param offset: Amount of types skipped before collecting.
-        :param limit: Largest amount of types that is returned, zero for all of them.
-        :return: The matching type declarations ordered by their relative position.
+        A declaration belongs to as many industries as it names, and one that names none is shared by every
+        industry, so an industry is offered the declarations that list it plus the ones that list nobody.
+
+        :param kind: Whether event types, entity types or platforms are read.
+        :param industry: Industry whose own declarations are added to the shared ones.
+        :param offset: Amount of declarations skipped before collecting.
+        :param limit: Largest amount of declarations that is returned, zero for all of them.
+        :return: The matching declarations ordered by their relative position.
         """
         query: dict[str, Any] = {"kind": kind}
         if industry:
-            query["$or"] = [{"industry": None}, {"industry": industry}]
+            query["$or"] = [{"industries": []}, {"industries": industry}]
 
         return await self.find_many(
             query=query,

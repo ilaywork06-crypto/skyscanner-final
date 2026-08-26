@@ -19,6 +19,7 @@ from skyscanner_models.subscription import SubscriptionTrigger
 from events_service.documents import EntityDocument, EventDocument, OutboxDocument
 from events_service.repositories.event_repository import EventRepository
 from events_service.repositories.outbox_repository import OutboxRepository
+from events_service.services.artifact_rules import require_unique_artifacts
 from events_service.services.field_service import FieldService
 from events_service.services.industry_service import IndustryService
 from events_service.services.revision_service import RevisionService, entity_update_changes
@@ -49,7 +50,7 @@ class EntityService:
         :param type_service: Resolver of the declared entity types.
         :param field_service: Owner of the dynamic schema of the entities.
         :param revision_service: Owner of the edit history.
-        :param industry_service: Owner of the industries, which declare the vocabulary of the origins.
+        :param industry_service: Owner of the industries, which declare the vocabulary of the modules.
         """
         self._event_repository = event_repository
         self._outbox_repository = outbox_repository
@@ -79,6 +80,12 @@ class EntityService:
         :raises ValidationError: When a required value is missing, a value breaks a declared rule or the
             entity is declared parsed while it carries no parsed files.
         """
+        _require_unique_entity_files(
+            name=request.name,
+            raw_files=request.raw_files,
+            parsed_files=request.parsed_files,
+            parsed_additional_files=request.parsed_additional_files,
+        )
         entity_type = await self._type_service.resolve_entity_type(key=request.entity_type_key)
         attributes, flattened = await self._field_service.build_values(
             scope=FieldScope.ENTITY,
@@ -88,7 +95,7 @@ class EntityService:
             context=event_values,
         )
 
-        await self._require_known_origin(industry=industry, origin=request.origin)
+        await self._require_known_module(industry=industry, module=request.module)
 
         status = _resolve_status(
             requested=request.status,
@@ -104,7 +111,7 @@ class EntityService:
             object_type=entity_type.to_reference(),
             object_type_name=entity_type.name,
             object_type_key=entity_type.key,
-            origin=request.origin,
+            module=request.module,
             code_version=request.code_version,
             status=status,
             notes=request.notes,
@@ -137,7 +144,7 @@ class EntityService:
         :raises NotFoundError: When the event does not exist.
         """
         event = await self._require_event(event_id=event_id)
-        entities = event.objects
+        entities = event.live_objects
         if entity_type_key:
             entities = [entity for entity in entities if entity.object_type_key == entity_type_key]
 
@@ -195,21 +202,37 @@ class EntityService:
         """
         event = await self._require_event(event_id=event_id)
         current = _find_entity(event=event, entity_id=entity_id)
-        await self._require_known_origin(industry=event.industry, origin=request.origin)
+        await self._require_known_module(industry=event.industry, module=request.module)
 
         updates: dict[str, Any] = request.model_dump(exclude_unset=True, exclude_none=True)
         # The reason belongs to the history of the change, not to the entity itself.
         updates.pop("reason", None)
         if request.metadata is not None:
+            # Whatever the entity already holds under a key nobody declared stays readable and editable: the
+            # rule is that no new such key is written, not that an entity written before it becomes unsavable.
             attributes, flattened = await self._field_service.build_values(
                 scope=FieldScope.ENTITY,
                 supplied=request.metadata,
                 industry=event.industry,
                 entity_type=current.object_type_key,
                 context=event.data,
+                carried=set(current.data),
             )
             updates["metadata"] = [attribute.model_dump() for attribute in attributes]
             updates["data"] = flattened
+
+        # A file set the caller left out keeps what the entity already holds, and one it sent is the whole
+        # list, so the rule is read against whichever of the two the entity ends up carrying.
+        _require_unique_entity_files(
+            name=request.name or current.name,
+            raw_files=request.raw_files if request.raw_files is not None else current.raw_files,
+            parsed_files=request.parsed_files if request.parsed_files is not None else current.parsed_files,
+            parsed_additional_files=(
+                request.parsed_additional_files
+                if request.parsed_additional_files is not None
+                else current.parsed_additional_files
+            ),
+        )
 
         for artifact_field in ("raw_files", "parsed_files", "parsed_additional_files"):
             if artifact_field in updates:
@@ -270,30 +293,31 @@ class EntityService:
             event_id=event_id,
             entity_id=entity_id,
             entity_type_key=entity.object_type_key,
+            user=user.username,
         )
         # The entity is gone from the event, so the only place that can still answer what it held and who
         # took it away is the history.
         await self._revision_service.record_entity_removal(event_id=event_id, entity=entity, user=user)
 
-    async def _require_known_origin(self, industry: str, origin: str | None) -> None:
+    async def _require_known_module(self, industry: str, module: str | None) -> None:
         """
-        Refuse an origin that the industry did not declare, once the industry declared a vocabulary at all.
+        Refuse a module that the industry did not declare, once the industry declared a vocabulary at all.
 
-        An industry that has not named its origins accepts anything, so a system that nobody has configured
+        An industry that has not named its modules accepts anything, so a system that nobody has configured
         yet keeps working exactly as it did before the vocabulary existed.
 
         :param industry: Industry the entity belongs to.
-        :param origin: Origin the caller supplied.
-        :raises ValidationError: When the industry declared a vocabulary the origin is not part of.
+        :param module: Module the caller supplied.
+        :raises ValidationError: When the industry declared a vocabulary the module is not part of.
         """
-        if not origin:
+        if not module:
             return
 
-        allowed = await self._industry_service.allowed_origins(key=industry)
-        if allowed and origin not in allowed:
+        allowed = await self._industry_service.allowed_modules(key=industry)
+        if allowed and module not in allowed:
             raise ValidationError(
-                message="The origin is not one of the values declared for this industry",
-                details={"origin": origin, "allowed": ", ".join(allowed)},
+                message="The module is not one of the values declared for this industry",
+                details={"module": module, "allowed": ", ".join(allowed)},
             )
 
     async def _require_event(self, event_id: str) -> EventDocument:
@@ -334,6 +358,29 @@ class EntityService:
 # ----- FUNCTIONS ----- #
 
 
+def _require_unique_entity_files(
+    name: str,
+    raw_files: list[Artifact],
+    parsed_files: list[Artifact],
+    parsed_additional_files: list[Artifact],
+) -> None:
+    """
+    Refuse an entity that would carry the same file name twice inside one of its three roles.
+
+    The roles are checked apart rather than together: a raw recording and the product parsed out of it are
+    routinely called the same thing, and they live in folders of their own, so the two never collide.
+
+    :param name: Name of the entity, reported with a refusal so the caller knows which entity was wrong.
+    :param raw_files: Unparsed files the entity would end up carrying.
+    :param parsed_files: Parsed files the entity would end up carrying.
+    :param parsed_additional_files: Extra parsing products the entity would end up carrying.
+    :raises ValidationError: When one of the three sets holds the same name twice.
+    """
+    require_unique_artifacts(artifacts=raw_files, label=f"the raw files of {name}")
+    require_unique_artifacts(artifacts=parsed_files, label=f"the parsed files of {name}")
+    require_unique_artifacts(artifacts=parsed_additional_files, label=f"the parsing products of {name}")
+
+
 def _resolve_status(
     requested: EntityStatus | None,
     current: EntityStatus | None,
@@ -358,9 +405,11 @@ def _resolve_status(
     :raises ValidationError: When the caller asks for the parsed state without any parsed file.
     """
     if parsed_files:
-        return EntityStatus.PARSED
+        # Parsed products are on the entity, so it is parsed - unless the caller says that only part of the
+        # data came through, which is a claim the files support just as well and only the caller can make.
+        return EntityStatus.PARTIALLY_PARSED if requested is EntityStatus.PARTIALLY_PARSED else EntityStatus.PARSED
 
-    if requested is EntityStatus.PARSED:
+    if requested in {EntityStatus.PARSED, EntityStatus.PARTIALLY_PARSED}:
         raise ValidationError(
             message="An entity cannot be marked as parsed while it carries no parsed files",
             details=details,
@@ -369,7 +418,11 @@ def _resolve_status(
     if requested is not None:
         return requested
 
-    return EntityStatus.RAW if current is None or current is EntityStatus.PARSED else current
+    return (
+        EntityStatus.RAW
+        if current is None or current in {EntityStatus.PARSED, EntityStatus.PARTIALLY_PARSED}
+        else current
+    )
 
 
 def _find_entity(event: EventDocument, entity_id: str) -> EntityDocument:
@@ -381,7 +434,7 @@ def _find_entity(event: EventDocument, entity_id: str) -> EntityDocument:
     :return: The entity carrying the identifier.
     :raises NotFoundError: When the event does not hold such an entity.
     """
-    for entity in event.objects:
+    for entity in event.live_objects:
         if entity.id == entity_id:
             return entity
 

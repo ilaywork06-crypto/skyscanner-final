@@ -85,7 +85,11 @@ class GridService:
             default_sort_key=EVENT_SORT_KEY,
         )
 
-    async def entity_configuration(self, industry: str | None = None, entity_type: str | None = None) -> GridConfiguration:
+    async def entity_configuration(
+        self,
+        industry: str | None = None,
+        entity_type: str | None = None,
+    ) -> GridConfiguration:
         """
         Build the configuration of the table that renders the entities of one event.
 

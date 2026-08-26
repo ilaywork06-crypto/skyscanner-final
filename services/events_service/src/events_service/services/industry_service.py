@@ -79,7 +79,7 @@ class IndustryService:
 
     async def update_industry(self, key: str, request: IndustryUpdateRequest) -> IndustryResponse:
         """
-        Change a registered industry, which is how the vocabulary of the entity origins is maintained.
+        Change a registered industry, which is how the vocabulary of the entity modules is maintained.
 
         :param key: Machine key of the industry that is changed.
         :param request: Attributes the caller wants to change.
@@ -96,13 +96,13 @@ class IndustryService:
 
         return await self.get_industry(key=key)
 
-    async def allowed_origins(self, key: str) -> list[str]:
+    async def allowed_modules(self, key: str) -> list[str]:
         """
-        Read the vocabulary an entity of one industry may name as its origin.
+        Read the vocabulary an entity of one industry may name as its module.
 
         :param key: Machine key of the industry.
-        :return: The declared origins, empty when the industry accepts any text.
+        :return: The declared modules, empty when the industry accepts any text.
         """
         document = await self._repository.find_by_key(key=key)
 
-        return [] if document is None else list(document.entity_origins)
+        return [] if document is None else list(document.modules)

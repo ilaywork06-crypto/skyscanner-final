@@ -10,9 +10,10 @@ from typing import Any, Generic, TypeVar
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pydantic import BaseModel
-from pymongo import IndexModel
+from pymongo import ASCENDING, IndexModel
 from pymongo.errors import OperationFailure
 
+from skyscanner_common.datetime_utils import utc_now
 from skyscanner_common.logging_utils import get_logger
 from skyscanner_common.mongo import MongoProvider
 
@@ -22,6 +23,13 @@ LOGGER = get_logger(__name__)
 IDENTIFIER_FIELD: str = "_id"
 INDEX_CONFLICT_CODES: frozenset[int] = frozenset({85, 86})
 INDEX_MISSING_CODES: frozenset[int] = frozenset({26, 27})
+
+DELETED_FIELD: str = "deleted"
+
+# A removal writes a flag rather than erasing the document, so every read has to say that it wants the ones
+# that are still there. The test is "not true" rather than "is false" so that documents written before the
+# flag existed keep answering, without a migration having to touch every collection first.
+NOT_DELETED: dict[str, Any] = {DELETED_FIELD: {"$ne": True}}
 
 # ----- CLASSES ----- #
 
@@ -56,9 +64,15 @@ class BaseRepository(Generic[DocumentT]):
 
     async def ensure_indexes(self) -> None:
         """
-        Create the indexes the repository relies on, overridden by the repositories that need them.
+        Create the index every collection needs, extended by the repositories that carry their own.
+
+        Every single read of every collection now narrows on the removal flag, so that one attribute is
+        indexed everywhere rather than being left to a scan. The repositories that declare indexes of their
+        own call up to this one first.
         """
-        return None
+        await self.create_indexes(
+            [IndexModel([(DELETED_FIELD, ASCENDING)], name="deleted")],
+        )
 
     async def create_indexes(self, indexes: list[IndexModel]) -> None:
         """
@@ -103,7 +117,7 @@ class BaseRepository(Generic[DocumentT]):
         :param query: Restriction the document has to satisfy.
         :return: The parsed document, or nothing when the restriction matched none.
         """
-        raw = await self.collection.find_one(query)
+        raw = await self.collection.find_one(_alive(query))
         if raw is None:
             return None
 
@@ -136,7 +150,7 @@ class BaseRepository(Generic[DocumentT]):
         :param projection: Attributes that are read, all of them when omitted.
         :return: The parsed documents of the window.
         """
-        cursor = self.collection.find(query or {}, projection)
+        cursor = self.collection.find(_alive(query), projection)
         if sort:
             cursor = cursor.sort(sort)
         if skip:
@@ -153,20 +167,7 @@ class BaseRepository(Generic[DocumentT]):
         :param query: Restriction the documents have to satisfy.
         :return: The amount of matching documents.
         """
-        return int(await self.collection.count_documents(query or {}))
-
-    async def estimated_count(self) -> int:
-        """
-        Read how many documents the collection holds without looking at a single one of them.
-
-        The document store keeps the size of a collection in its own metadata, so answering this costs one
-        metadata read instead of a scan. The number is exact for a collection that was shut down cleanly and
-        may be off by the writes an unclean shutdown lost, which is why it only ever stands in for the total
-        of an unrestricted query.
-
-        :return: The amount of documents the collection holds.
-        """
-        return int(await self.collection.estimated_document_count())
+        return int(await self.collection.count_documents(_alive(query)))
 
     def _on_write(self) -> None:
         """
@@ -218,14 +219,41 @@ class BaseRepository(Generic[DocumentT]):
 
         return bool(result.matched_count)
 
-    async def delete(self, identifier: str) -> bool:
+    async def delete(self, identifier: str, user: str | None = None) -> bool:
         """
-        Remove a stored document.
+        Remove a stored document, which marks it as removed rather than erasing it.
+
+        Nothing is taken out of the document store. The document keeps its identifier, its history and the
+        files it points at, and every read of the collection leaves it behind from this moment on. A removal
+        that has to be undone is therefore a matter of clearing one flag.
 
         :param identifier: Identifier of the document that is removed.
+        :param user: Identity the removal is attributed to.
         :return: Whether a stored document was removed.
         """
-        result = await self.collection.delete_one({IDENTIFIER_FIELD: identifier})
+        result = await self.collection.update_one(
+            {IDENTIFIER_FIELD: identifier, **NOT_DELETED},
+            {"$set": {DELETED_FIELD: True, "deleted_at": utc_now(), "deleted_by": user}},
+        )
         self._on_write()
 
-        return bool(result.deleted_count)
+        return bool(result.matched_count)
+
+
+# ----- FUNCTIONS ----- #
+
+
+def _alive(query: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Narrow a restriction to the documents that were not removed.
+
+    :param query: Restriction the caller asked for.
+    :return: The same restriction, extended so that removed documents never answer it.
+    """
+    if not query:
+        return dict(NOT_DELETED)
+
+    if DELETED_FIELD in query:
+        return dict(query)
+
+    return {"$and": [query, dict(NOT_DELETED)]}

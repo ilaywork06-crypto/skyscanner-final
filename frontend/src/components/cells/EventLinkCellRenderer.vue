@@ -9,7 +9,6 @@
     v-if="isName && text.length > 0"
     class="event-link event-link--name"
     :href="href"
-    :title="text"
     @click="open"
   >
     <HighlightedText

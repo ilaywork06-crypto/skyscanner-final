@@ -59,6 +59,7 @@ class SchemaIntrospector:
         sample_size: int = DEFAULT_SAMPLE_SIZE,
         scan_limit: int = DEFAULT_SCAN_LIMIT,
         distinct_scan_limit: int = DEFAULT_DISTINCT_SCAN_LIMIT,
+        base_filter: dict[str, Any] | None = None,
     ):
         """
         Keep the collection that is inspected and how many documents one run may look at.
@@ -67,11 +68,13 @@ class SchemaIntrospector:
         :param sample_size: Amount of documents a single unrestricted introspection run samples.
         :param scan_limit: Amount of documents a single restricted introspection run reads.
         :param distinct_scan_limit: Amount of documents the ready made filter options are counted over.
+        :param base_filter: Restriction every run starts from, such as leaving out the removed documents.
         """
         self._collection = collection
         self._sample_size = sample_size
         self._scan_limit = scan_limit
         self._distinct_scan_limit = distinct_scan_limit
+        self._base_filter = dict(base_filter or {})
 
     async def discover_dynamic_keys(self, scope_filter: dict[str, Any] | None = None) -> dict[str, FieldType]:
         """
@@ -81,7 +84,7 @@ class SchemaIntrospector:
         :return: The discovered keys mapped to the primitive type they were seen with.
         """
         pipeline: list[dict[str, Any]] = _sampling_stages(
-            scope_filter=scope_filter,
+            scope_filter={**self._base_filter, **(scope_filter or {})},
             sample_size=self._sample_size,
             scan_limit=self._scan_limit,
         )
@@ -135,6 +138,7 @@ class SchemaIntrospector:
                     scope=scope,
                     industry=industry,
                     entity_type=None,
+                    discovered=True,
                     metadata=FieldMetadata(description="Discovered from the stored documents"),
                     constraints=[],
                     filterable=True,
@@ -165,7 +169,7 @@ class SchemaIntrospector:
         :return: The distinct values of the path as text, ordered by how often they appear in the window.
         """
         pipeline: list[dict[str, Any]] = [
-            {"$match": {path: {"$nin": [None, ""]}}},
+            {"$match": {**self._base_filter, path: {"$nin": [None, ""]}}},
             {"$limit": self._distinct_scan_limit},
             {"$group": {"_id": f"${path}", "count": {"$sum": 1}}},
             {"$sort": {"count": -1, "_id": 1}},

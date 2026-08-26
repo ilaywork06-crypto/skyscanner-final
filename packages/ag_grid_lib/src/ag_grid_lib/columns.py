@@ -51,7 +51,6 @@ class BaseColumnSpec(BaseModel):
     pinned: str | None = Field(default=None, description="Side the column is pinned to")
     auto_height: bool = Field(default=False, description="Whether the row grows to fit the rendered content")
     order: int = Field(default=10, description="Relative position of the column")
-    tooltip_field: str | None = Field(default=None, description="Path of the value shown as the cell tooltip")
 
 
 # ----- FUNCTIONS ----- #
@@ -84,10 +83,10 @@ def column_from_spec(spec: BaseColumnSpec) -> ColumnDefinition:
         cell_renderer=(spec.renderer or FIELD_TYPE_RENDERERS[spec.field_type]).value,
         cell_renderer_params=spec.renderer_params,
         cell_data_type=False,
-        tooltip_field=spec.tooltip_field,
         auto_height=spec.auto_height,
         field_type=spec.field_type.value,
         dynamic=False,
+        discovered=False,
         industry=None,
     )
 
@@ -125,10 +124,10 @@ def column_from_field(definition: FieldResponse) -> ColumnDefinition:
         cell_renderer=renderer.value,
         cell_renderer_params=renderer_params,
         cell_data_type=False,
-        tooltip_field=None,
         auto_height=definition.type is FieldType.FILE,
         field_type=definition.type.value,
         dynamic=True,
+        discovered=definition.discovered,
         industry=definition.industry,
     )
 

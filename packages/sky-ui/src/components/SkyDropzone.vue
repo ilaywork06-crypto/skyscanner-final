@@ -7,7 +7,7 @@
       {{ label }}
     </p>
     <p class="dropzone__hint">
-      Multiple files are allowed
+      Multiple files are allowed, but the same file name only once
     </p>
 
     <div
@@ -53,6 +53,18 @@
       </div>
     </div>
 
+    <!--
+      A name that is already on the list is refused rather than added beside it: two files under one name
+      leave the owner with two records nobody can tell apart, and only the person picking knows which one
+      they meant. Saying which names were turned away is what tells that apart from a picker that did nothing.
+    -->
+    <p
+      v-if="rejected.length > 0"
+      class="dropzone__rejected"
+    >
+      Already picked, so not added again: {{ rejected.join(', ') }}
+    </p>
+
     <input
       ref="picker"
       type="file"
@@ -85,12 +97,36 @@ const emit = defineEmits<Emits>()
 const picker = ref<HTMLInputElement | null>(null)
 const dragging = ref<boolean>(false)
 
+/** The names of the last pick that were turned away, so that a refusal is never silent. */
+const rejected = ref<string[]>([])
+
+/**
+ * Take the picked files the list does not hold already, and remember the names of the ones it does.
+ */
 const append = (incoming: FileList | null) => {
   if (incoming === null) {
     return
   }
 
-  emit('update:files', [...props.files, ...Array.from(incoming)])
+  const taken = new Set(props.files.map((file) => file.name))
+  const accepted: File[] = []
+  const refused: string[] = []
+
+  Array.from(incoming).forEach((file) => {
+    if (taken.has(file.name)) {
+      refused.push(file.name)
+
+      return
+    }
+
+    taken.add(file.name)
+    accepted.push(file)
+  })
+
+  rejected.value = [...new Set(refused)]
+  if (accepted.length > 0) {
+    emit('update:files', [...props.files, ...accepted])
+  }
 }
 
 const onPick = (event: Event) => {
@@ -105,6 +141,8 @@ const onDrop = (event: DragEvent) => {
 }
 
 const remove = (index: number) => {
+  /* Taking a file off makes room for its name again, so the refusal it caused is no longer worth showing. */
+  rejected.value = []
   emit(
     'update:files',
     props.files.filter((_, candidate) => candidate !== index),
@@ -172,6 +210,11 @@ const remove = (index: number) => {
 .dropzone__size {
   opacity: 0.6;
   font-size: 0.75rem;
+}
+
+.dropzone__rejected {
+  font-size: 0.75rem;
+  color: rgb(var(--v-theme-error));
 }
 
 .dropzone__input {

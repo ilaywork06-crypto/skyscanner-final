@@ -15,12 +15,37 @@
           v-model="form"
           :entity-types="entityTypes"
           :fields="fields"
-          :origins="origins"
+          :modules="modules"
           :lock-type="isEdit || lockType"
           :stored-parsed-count="storedParsedCount"
           :context="eventValues"
           id-prefix="add-entity"
         />
+
+        <!--
+          The files an entity already carries. They used to be add only, so a raw file uploaded by mistake or
+          a parsing product that was superseded stayed on the entity for good. Marking one here detaches it
+          as part of this very edit, under the same reason, and the history records it beside the rest.
+        -->
+        <div
+          v-if="isEdit && entity !== null"
+          class="add-entity__files"
+        >
+          <StoredFilesEditor
+            v-for="set in storedFileSets"
+            :key="set.role"
+            :model-value="keptFiles[set.role]"
+            :stored="set.files"
+            :label="set.label"
+            @update:model-value="keepFiles(set.role, $event)"
+          />
+          <p
+            v-if="duplicateWarning.length > 0"
+            class="add-entity__duplicate"
+          >
+            {{ duplicateWarning }}
+          </p>
+        </div>
 
         <!-- Only a change to something that already exists has a history to explain. -->
         <div
@@ -73,10 +98,27 @@
 </template>
 
 <script lang="ts">
-import type { JsonValue } from '@/models/common'
+import type { Artifact, JsonValue } from '@/models/common'
 import type { EntityResponse, EntityType } from '@/models/entity'
 import type { EventDetail } from '@/models/event'
 import type { FieldDefinition } from '@/models/field'
+
+/** The three roles a file plays for an entity, each with its own stored list and its own dropzone. */
+type FileRole = 'raw' | 'parsed' | 'parsedAdditional'
+
+/** One stored file set as the editor renders it: what it is called and what it currently holds. */
+interface StoredFileSet {
+  role: FileRole
+  label: string
+  files: Artifact[]
+}
+
+/** Which form field, stored list and bucket folder each role answers to, in one place rather than three. */
+const FILE_ROLES: { role: FileRole; label: string; folder: string }[] = [
+  { role: 'raw', label: 'Raw files', folder: 'raw_files' },
+  { role: 'parsed', label: 'Parsed files', folder: 'parsed_files' },
+  { role: 'parsedAdditional', label: 'Additional parsing products', folder: 'parsed_additional_files' },
+]
 
 interface Props {
   modelValue: boolean
@@ -97,12 +139,14 @@ interface Emits {
 const NAME_MISSING = 'A type and a name are needed'
 const NOTHING_CHANGED = 'Nothing has changed yet'
 const REASON_MISSING = 'A reason is needed before this can be saved'
+const DUPLICATE_FILES = 'A file cannot be attached twice under the same name'
 </script>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
 import EntityFormFields, { emptyEntityForm, type EntityFormValue } from '@/components/EntityFormFields.vue'
+import StoredFilesEditor from '@/components/StoredFilesEditor.vue'
 import UnsavedChangesDialog from '@/components/UnsavedChangesDialog.vue'
 import { useDirtyGuard } from '@/composables/useDirtyGuard'
 import { useSnackbar } from '@/composables/useSnackbar'
@@ -110,7 +154,8 @@ import { useIndustries } from '@/composables/useIndustries'
 import { addEntity, updateEntity } from '@/requests/entities'
 import { listEntityTypes, listFields } from '@/requests/schema'
 import { uploadArtifacts } from '@/requests/storage'
-import { toMetadataAttributes, toValueMap } from '@/utils/rows'
+import { collisionMessage } from '@/utils/artifacts'
+import { toMetadataAttributes, toValueMap, toValueTypeMap } from '@/utils/rows'
 
 const props = withDefaults(defineProps<Props>(), {
   entity: null,
@@ -128,18 +173,68 @@ const form = ref<EntityFormValue>(emptyEntityForm())
 const reason = ref<string>('')
 const saving = ref<boolean>(false)
 
+/* The stored files of each role that will survive the edit, which starts out as every one of them. */
+const keptFiles = ref<Record<FileRole, Artifact[]>>({ raw: [], parsed: [], parsedAdditional: [] })
+
+const keepFiles = (role: FileRole, files: Artifact[]) => {
+  keptFiles.value = { ...keptFiles.value, [role]: files }
+}
+
 /* What the form was filled with when it opened, which is what an edit is measured against. */
 const openedWith = ref<string>('')
 
 const isEdit = computed<boolean>(() => props.entity !== null)
 
-const origins = computed<string[]>(() => findIndustry(props.event.industry)?.entity_origins ?? [])
+const modules = computed<string[]>(() => findIndustry(props.event.industry)?.modules ?? [])
 
 /*
  * The parsed products the entity already carries decide whether parsed can be chosen at all, and the entity
- * being attached for the first time carries none of them yet.
+ * being attached for the first time carries none of them yet. What counts is what survives this edit: an
+ * entity whose parsed products are all being detached is on its way back to raw, and the service reads it
+ * the same way.
  */
-const storedParsedCount = computed<number>(() => props.entity?.parsed_files.length ?? 0)
+const storedParsedCount = computed<number>(() =>
+  props.entity === null ? 0 : keptFiles.value.parsed.length,
+)
+
+/* The three stored sets as the editors render them, in the order the dropzones underneath ask for them. */
+const storedFileSets = computed<StoredFileSet[]>(() => {
+  const entity = props.entity
+  if (entity === null) {
+    return []
+  }
+
+  return [
+    { role: 'raw', label: 'Stored raw files', files: entity.raw_files },
+    { role: 'parsed', label: 'Stored parsed files', files: entity.parsed_files },
+    {
+      role: 'parsedAdditional',
+      label: 'Stored additional parsing products',
+      files: entity.parsed_additional_files,
+    },
+  ]
+})
+
+/*
+ * A picked file that the entity already holds in the same role under the same name is refused rather than
+ * stored beside it. Files marked for removal do not count, so replacing one is take the old off, add the new.
+ */
+const duplicateWarning = computed<string>(() => {
+  const picked: Record<FileRole, File[]> = {
+    raw: form.value.rawFiles,
+    parsed: form.value.parsedFiles,
+    parsedAdditional: form.value.parsedAdditionalFiles,
+  }
+
+  for (const role of FILE_ROLES) {
+    const message = collisionMessage(keptFiles.value[role.role], picked[role.role], role.folder, role.label)
+    if (message.length > 0) {
+      return message
+    }
+  }
+
+  return ''
+})
 
 /* The values of the owning event, so that an entity field may be asked for only when the event says so. */
 const eventValues = computed<Record<string, JsonValue>>(() => toValueMap(props.event.metadata))
@@ -154,6 +249,8 @@ const snapshot = (): string =>
     rawFiles: form.value.rawFiles.map((file) => `${file.name}:${file.size}`),
     parsedFiles: form.value.parsedFiles.map((file) => `${file.name}:${file.size}`),
     parsedAdditionalFiles: form.value.parsedAdditionalFiles.map((file) => `${file.name}:${file.size}`),
+    /* Detaching a stored file is a change like any other, so it counts towards a dirty form. */
+    keptFiles: FILE_ROLES.map((role) => keptFiles.value[role.role].map((file) => file.id)),
   })
 
 const isDirty = computed<boolean>(() => snapshot() !== openedWith.value)
@@ -166,6 +263,10 @@ const isDirty = computed<boolean>(() => snapshot() !== openedWith.value)
 const blockedReason = computed<string>(() => {
   if (form.value.typeKey === null || form.value.name.trim().length === 0) {
     return NAME_MISSING
+  }
+
+  if (duplicateWarning.value.length > 0) {
+    return DUPLICATE_FILES
   }
 
   if (!isEdit.value) {
@@ -200,7 +301,17 @@ const loadFields = async (typeKey: string | null): Promise<void> => {
 }
 
 const fill = async (): Promise<void> => {
+  const entity = props.entity
   reason.value = ''
+  /*
+   * The file sets are taken hold of before anything is awaited: the dialog renders as soon as it is opened,
+   * and a list that is still empty at that moment would show every stored file struck through for a frame.
+   */
+  keptFiles.value = {
+    raw: [...(entity?.raw_files ?? [])],
+    parsed: [...(entity?.parsed_files ?? [])],
+    parsedAdditional: [...(entity?.parsed_additional_files ?? [])],
+  }
 
   try {
     entityTypes.value = await listEntityTypes(props.event.industry)
@@ -208,7 +319,6 @@ const fill = async (): Promise<void> => {
     reportError(error)
   }
 
-  const entity = props.entity
   if (entity === null) {
     const preselected = entityTypes.value.find(
       (type) => type.key === props.defaultTypeKey || type.name === props.defaultTypeKey,
@@ -222,11 +332,12 @@ const fill = async (): Promise<void> => {
       ...emptyEntityForm(),
       typeKey: entity.object_type_key.length > 0 ? entity.object_type_key : null,
       name: entity.name,
-      origin: entity.origin,
+      module: entity.module,
       codeVersion: entity.code_version ?? '',
       status: entity.status,
       notes: entity.notes,
       values: toValueMap(entity.metadata),
+      valueTypes: toValueTypeMap(entity.metadata),
     }
   }
 
@@ -282,7 +393,7 @@ const submit = async (): Promise<void> => {
       await addEntity(props.event.id, {
         name: form.value.name.trim(),
         entity_type_key: typeKey,
-        origin: form.value.origin,
+        module: form.value.module,
         code_version: form.value.codeVersion.length > 0 ? form.value.codeVersion : null,
         status: form.value.status,
         notes: form.value.notes,
@@ -292,21 +403,22 @@ const submit = async (): Promise<void> => {
         raw_files: raw,
         parsed_files: parsed,
         parsed_additional_files: additional,
-        metadata: toMetadataAttributes(form.value.values),
+        metadata: toMetadataAttributes(form.value.values, form.value.valueTypes),
       })
       notify('The entity was added', 'success')
     } else {
       await updateEntity(props.event.id, entity.id, {
         reason: reason.value.trim(),
         name: form.value.name.trim(),
-        origin: form.value.origin,
+        module: form.value.module,
         code_version: form.value.codeVersion.length > 0 ? form.value.codeVersion : null,
         status: form.value.status,
         notes: form.value.notes,
-        raw_files: [...entity.raw_files, ...raw],
-        parsed_files: [...entity.parsed_files, ...parsed],
-        parsed_additional_files: [...entity.parsed_additional_files, ...additional],
-        metadata: toMetadataAttributes(form.value.values),
+        /* What survives the edit plus what was just added, which is how a removal reaches the service. */
+        raw_files: [...keptFiles.value.raw, ...raw],
+        parsed_files: [...keptFiles.value.parsed, ...parsed],
+        parsed_additional_files: [...keptFiles.value.parsedAdditional, ...additional],
+        metadata: toMetadataAttributes(form.value.values, form.value.valueTypes),
       })
       notify('The entity was updated', 'success')
     }
@@ -359,6 +471,20 @@ watch(
   flex-direction: column;
   gap: 1.5rem;
   max-block-size: 65vh;
+}
+
+.add-entity__files {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border: 0.0625rem solid rgb(var(--v-theme-app-border));
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.add-entity__duplicate {
+  font-size: 0.8125rem;
+  color: rgb(var(--v-theme-error));
 }
 
 .add-entity__reason {

@@ -111,4 +111,4 @@ class SubscriptionService:
         if document.owner != user.username:
             raise PermissionDeniedError(message="Only the owner of a subscription may remove it")
 
-        await self._repository.delete(identifier=subscription_id)
+        await self._repository.delete(identifier=subscription_id, user=user.username)

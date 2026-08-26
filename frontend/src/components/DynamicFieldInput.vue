@@ -1,5 +1,8 @@
 <template>
-  <div class="dynamic-field">
+  <div
+    class="dynamic-field"
+    :class="{ 'dynamic-field--wide': isWide }"
+  >
     <label
       class="dynamic-field__label"
       :for="inputId"
@@ -44,6 +47,13 @@
       @update:model-value="emit('update:modelValue', $event ?? false)"
     />
 
+    <CoordinateField
+      v-else-if="field.type === 'coordinate'"
+      :model-value="modelValue"
+      :label="field.name"
+      @update:model-value="emit('update:modelValue', $event)"
+    />
+
     <v-textarea
       v-else-if="field.type === 'text'"
       :id="inputId"
@@ -86,11 +96,15 @@ type ValidationRule = (value: string | number | null) => true | string
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import CoordinateField from '@/components/CoordinateField.vue'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const inputId = computed<string>(() => `field-${props.field.key}`)
+
+/* A map is unreadable squeezed into one column of the grid, so a point takes the whole row it sits on. */
+const isWide = computed<boolean>(() => props.field.type === 'coordinate')
 
 const helpText = computed<string>(() => props.field.metadata.description ?? '')
 
@@ -163,6 +177,10 @@ const onText = (value: string) => {
   flex-direction: column;
   gap: 0.375rem;
   min-inline-size: 0;
+}
+
+.dynamic-field--wide {
+  grid-column: 1 / -1;
 }
 
 .dynamic-field__label {

@@ -2,7 +2,7 @@
  * The helpers that read values out of the flattened grid rows, where dynamic values live under a nested key.
  */
 
-import type { Artifact, JsonValue, MetadataAttribute } from '@/models/common'
+import type { Artifact, FieldType, JsonValue, MetadataAttribute } from '@/models/common'
 import type { EntityResponse } from '@/models/entity'
 import type { GridRow } from '@/models/grid'
 
@@ -58,11 +58,18 @@ const readArtifacts = (value: JsonValue): Artifact[] => {
 
 /**
  * Turn the dynamic values of a form into the attributes the API expects.
+ *
+ * A value that follows a declared field is typed by that declaration, and one the user invented on the spot
+ * is typed by what they picked beside it. Saying so here is what lets a number stay a number and a date stay
+ * a date once the value is read back, rather than everything coming home as text.
  */
-const toMetadataAttributes = (values: Record<string, JsonValue>): MetadataAttribute[] =>
+const toMetadataAttributes = (
+  values: Record<string, JsonValue>,
+  types: Record<string, FieldType> = {},
+): MetadataAttribute[] =>
   Object.entries(values)
     .filter(([, value]) => value !== null && value !== '' && !(Array.isArray(value) && value.length === 0))
-    .map(([key, value]) => ({ key, value, type: 'string' }))
+    .map(([key, value]) => ({ key, value, type: types[key] ?? 'string' }))
 
 /**
  * Turn the attributes of a stored document back into the flat mapping the generated columns address.
@@ -77,6 +84,18 @@ const toValueMap = (attributes: MetadataAttribute[]): Record<string, JsonValue> 
 }
 
 /**
+ * Read back the type every stored value was written with, so that reopening a form offers the same input.
+ */
+const toValueTypeMap = (attributes: MetadataAttribute[]): Record<string, FieldType> => {
+  const types: Record<string, FieldType> = {}
+  attributes.forEach((attribute) => {
+    types[attribute.key] = attribute.type
+  })
+
+  return types
+}
+
+/**
  * Flatten one entity into the row shape the generated entity columns address.
  */
 const entityToRow = (entity: EntityResponse): GridRow => ({
@@ -87,4 +106,4 @@ const entityToRow = (entity: EntityResponse): GridRow => ({
   data: toValueMap(entity.metadata),
 })
 
-export { entityToRow, readArtifacts, readPath, readText, toMetadataAttributes, toValueMap }
+export { entityToRow, readArtifacts, readPath, readText, toMetadataAttributes, toValueMap, toValueTypeMap }

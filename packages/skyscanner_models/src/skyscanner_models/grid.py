@@ -42,13 +42,19 @@ class ColumnDefinition(BaseModel):
         description="Parameters handed over to the registered renderer",
     )
     cell_data_type: str | bool = Field(default=False, description="Data type hint given to the grid")
-    tooltip_field: str | None = Field(default=None, description="Path of the value shown as the cell tooltip")
     header_class: str | None = Field(default=None, description="Extra class applied to the header cell")
     cell_class: str | None = Field(default=None, description="Extra class applied to every body cell")
     auto_height: bool = Field(default=False, description="Whether the row grows to fit the rendered content")
     field_type: str = Field(default="string", description="Primitive type the column was generated from")
     dynamic: bool = Field(default=False, description="Whether the column came from a user declared field")
-    industry: str | None = Field(default=None, description="Industry owning the column, empty when the column is shared")
+    discovered: bool = Field(
+        default=False,
+        description="Whether the column was inferred from the stored documents rather than declared",
+    )
+    industry: str | None = Field(
+        default=None,
+        description="Industry owning the column, empty when the column is shared",
+    )
 
 
 class GridConfiguration(BaseModel):

@@ -8,8 +8,8 @@ interface Industry {
   name: string
   description: string
   color: string
-  /** The values an entity of this industry may name as its origin. Empty means any text is accepted. */
-  entity_origins: string[]
+  /** The modules an entity of this industry may name. Empty means any text is accepted. */
+  modules: string[]
   event_count: number
   created_at: string
 }
@@ -19,14 +19,14 @@ interface IndustryCreateRequest {
   name: string
   description: string
   color: string
-  entity_origins: string[]
+  modules: string[]
 }
 
 interface IndustryUpdateRequest {
   name?: string
   description?: string
   color?: string
-  entity_origins?: string[]
+  modules?: string[]
 }
 
 export type { Industry, IndustryCreateRequest, IndustryUpdateRequest }

@@ -40,13 +40,4 @@ const readEventRows = async (request: GridRowsRequest): Promise<GridRowsPage> =>
   return response.data
 }
 
-/**
- * Read the values one column currently holds, so that the client can offer them as filter options.
- */
-const readColumnValues = async (key: string): Promise<string[]> => {
-  const response = await client.get<string[]>(`/grid/events/values/${key}`)
-
-  return response.data
-}
-
-export { readColumnValues, readEntityColumns, readEventColumns, readEventRows }
+export { readEntityColumns, readEventColumns, readEventRows }

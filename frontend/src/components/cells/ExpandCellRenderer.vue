@@ -1,10 +1,15 @@
 <template>
   <div class="expand-cell">
+    <!--
+      The arrow points the way the panel is about to move: down while the row is shut, because pressing it
+      opens the panel underneath, and up once it is open, because pressing it folds the panel away again.
+    -->
     <v-btn
-      :icon="expanded ? 'mdi-chevron-down' : 'mdi-chevron-up'"
+      :icon="expanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
       size="small"
       variant="text"
-      aria-label="Toggle the details of the event"
+      :aria-label="expanded ? 'Hide the details of the event' : 'Show the details of the event'"
+      :aria-expanded="expanded"
       @click.stop="toggleDetails"
     />
   </div>

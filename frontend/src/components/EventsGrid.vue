@@ -108,30 +108,34 @@ interface GridViewState {
   filters: FilterCondition[]
 }
 
-/*
- * The context of the table is the shared contract every cell renderer reads, widened by the two values this
- * particular table is the only one that knows: the term the rows were searched for and the industry the
- * inventory is narrowed to.
- */
-type InventoryGridContext = GridContext & {
-  search: string
-  industryFilter: string | null
-}
+/* The context of the table is the shared contract every cell renderer reads, exactly as it is declared. */
+type InventoryGridContext = GridContext
 
-/** The chrome of an expanded panel: its own padding, the industry values above the entities and the gaps. */
-const DETAIL_ROW_PADDING = 120
+/*
+ * What a panel is expected to measure, used for the one frame between the row being given a height and the
+ * panel inside it reporting the height it actually turned out to be. Everything after that frame is the
+ * measurement rather than the guess, so these only have to be close enough not to jump.
+ */
+
+/** The chrome of an expanded panel: its own padding and the gaps between the tables inside it. */
+const DETAIL_ROW_PADDING = 56
 
 /**
- * An event without a single entity still shows its industry values and the invitation to add an entity, and
- * a panel shorter than this cuts into both of them.
+ * The table of the attributes of the event itself, which every panel opens with.
+ *
+ * It is one heading, one header row and one row of values whatever the event holds, so it costs the same
+ * whether the event carries two declared fields or twenty - those widen the table rather than lengthen it.
  */
-const DETAIL_ROW_MIN_HEIGHT = 288
+const DETAIL_ATTRIBUTES_HEIGHT = 96
 
-/** The least room one entity section takes, however few entities it holds. */
-const DETAIL_ENTITY_SECTION_HEIGHT = 240
+/**
+ * An event without a single entity still shows the invitation to add one, and a panel shorter than this
+ * cuts into it.
+ */
+const DETAIL_ROW_MIN_HEIGHT = 264
 
 /** What a section spends before its first entity: its heading and the header row of its table. */
-const DETAIL_ENTITY_SECTION_CHROME = 96
+const DETAIL_ENTITY_SECTION_CHROME = 72
 
 /** One entity of a section, matching the padding the entity table renders its cells with. */
 const DETAIL_ENTITY_ROW_HEIGHT = 52
@@ -141,6 +145,9 @@ const DETAIL_ENTITY_ROW_HEIGHT = 52
  * unusable, so past this the panel does scroll inside itself after all.
  */
 const DETAIL_ROW_MAX_HEIGHT = 1400
+
+/** A measurement less than this away from the height the row already has is not worth a relayout. */
+const DETAIL_HEIGHT_EPSILON = 1
 
 /**
  * The element AG Grid scrolls the columns with.
@@ -191,9 +198,29 @@ const context = computed<InventoryGridContext>(() => ({
   openArtifact: (artifact: Artifact) => emit('open-artifact', artifact),
   downloadArtifact: (artifact: Artifact) => emit('download', artifact),
   findRow: (rowId: string) => props.sourceRows.find((row) => String(row.id) === rowId),
+  reportDetailHeight: (parentId: string, height: number) => rememberDetailHeight(parentId, height),
   search: props.search,
-  industryFilter: props.industry,
 }))
+
+/*
+ * What each open panel measured. The heights are kept here rather than left to the row itself because the
+ * table resets every row height whenever a panel is opened or closed, and a measurement that did not survive
+ * that reset would be taken, thrown away and taken again on every toggle.
+ */
+const measuredDetailHeights = new Map<string, number>()
+
+/**
+ * Take the height a panel reported and give its row exactly that, unless it already has it.
+ */
+const rememberDetailHeight = (parentId: string, height: number) => {
+  const rounded = Math.ceil(height)
+  if (Math.abs((measuredDetailHeights.get(parentId) ?? 0) - rounded) < DETAIL_HEIGHT_EPSILON) {
+    return
+  }
+
+  measuredDetailHeights.set(parentId, rounded)
+  gridApi.value?.resetRowHeights()
+}
 
 /**
  * Count the entities of one event group by group, which is how its panel is laid out.
@@ -210,24 +237,27 @@ const readEntitySections = (row: GridRow): number[] => {
 }
 
 /**
- * Measure how tall the panel of one expanded event has to be.
+ * Say how tall the row of one expanded event has to be.
  *
- * The panel is given the room its own content needs rather than a fixed allowance, so that it grows with the
- * entities of the event instead of scrolling them out of sight inside a row the size of every other row. An
- * event without a single entity is measured just as honestly and does not reserve the room of tables it has not
- * got, and a hopelessly crowded one is capped so that one row can never swallow the whole table.
+ * The panel that has already drawn itself answers this itself, and what it reports is what its row gets, so
+ * there is never a band of empty table underneath it nor a panel cut off inside it. Only the frame before
+ * that first measurement is estimated, out of the entity counts the row carries, and a hopelessly crowded
+ * panel is capped so that one row can never swallow the whole table.
  */
 const detailHeight = (parentId: string): number => {
+  const measured = measuredDetailHeights.get(parentId)
+  if (measured !== undefined) {
+    return Math.min(DETAIL_ROW_MAX_HEIGHT, measured)
+  }
+
   const parent = props.sourceRows.find((row) => String(row.id) === parentId)
   const sections = parent === undefined ? [] : readEntitySections(parent)
-  const measured = sections.reduce(
-    (total, entities) =>
-      total +
-      Math.max(DETAIL_ENTITY_SECTION_HEIGHT, DETAIL_ENTITY_SECTION_CHROME + entities * DETAIL_ENTITY_ROW_HEIGHT),
-    DETAIL_ROW_PADDING,
+  const expected = sections.reduce(
+    (total, entities) => total + DETAIL_ENTITY_SECTION_CHROME + entities * DETAIL_ENTITY_ROW_HEIGHT,
+    DETAIL_ROW_PADDING + DETAIL_ATTRIBUTES_HEIGHT,
   )
 
-  return Math.min(DETAIL_ROW_MAX_HEIGHT, Math.max(DETAIL_ROW_MIN_HEIGHT, measured))
+  return Math.min(DETAIL_ROW_MAX_HEIGHT, Math.max(DETAIL_ROW_MIN_HEIGHT, expected))
 }
 
 /**
@@ -507,7 +537,48 @@ const applyViewState = async (state: GridViewState): Promise<void> => {
   }
 }
 
-defineExpose({ setAllSelected, clearFilters, clearColumnFilter, readColumnLayout, applySort, applyViewState })
+/**
+ * Put the running table back the way the backend generated it - every column at its declared place and width,
+ * no filter in any header, and the ordering the configuration asked for.
+ *
+ * The visibility travels as a prop and rebuilds the column definitions, which is what resets the state of
+ * every column, so the reset is written only once that rebuild has landed - the same reason a saved view is
+ * restored the way it is.
+ */
+const resetView = async (sort: SortSpecification[]): Promise<void> => {
+  const api = gridApi.value
+  if (api === null) {
+    return
+  }
+
+  restoringView = true
+  try {
+    await nextTick()
+    api.resetColumnState()
+    api.setFilterModel(null)
+    api.applyColumnState({
+      state: sort.map((specification, index) => ({
+        colId: specification.key,
+        sort: specification.direction,
+        sortIndex: index,
+      })),
+      defaultState: { sort: null, sortIndex: null },
+    })
+    await nextTick()
+  } finally {
+    restoringView = false
+  }
+}
+
+defineExpose({
+  setAllSelected,
+  clearFilters,
+  clearColumnFilter,
+  readColumnLayout,
+  applySort,
+  applyViewState,
+  resetView,
+})
 
 /*
  * The theme object is read once when the grid is created, so switching between the dark and the light
@@ -528,13 +599,44 @@ watch(
   },
 )
 
+/*
+ * Which rows are open travels to the cells inside the context of the table, and the wrapper pushes a changed
+ * context into the running grid with a watcher of its own. That watcher is created when the grid mounts,
+ * which is after this one, so redrawing the cells here used to redraw them against the context of the
+ * previous state: the arrow of the row that was just opened kept pointing the way it did before, and every
+ * toggle after it was one behind. The context is therefore written into the grid first and the cells are
+ * redrawn against it, so the arrow and the panel underneath it always tell the same story.
+ */
 watch(
   () => props.expandedIds,
   () => {
-    gridApi.value?.refreshCells({ force: true })
-    gridApi.value?.resetRowHeights()
+    const api = gridApi.value
+    if (api === null) {
+      return
+    }
+
+    api.setGridOption('context', context.value)
+    api.refreshCells({ force: true })
+    api.resetRowHeights()
   },
   { deep: true },
+)
+
+/*
+ * A block of rows that was replaced - another page, another filter - carries panels that were never opened,
+ * and the heights measured for the rows that went with it are no longer about anything. The rows that stayed
+ * keep theirs: their panels are still mounted and still that tall, and nothing would measure them again.
+ */
+watch(
+  () => props.sourceRows,
+  (rows) => {
+    const present = new Set(rows.map((row) => String(row.id)))
+    measuredDetailHeights.forEach((_, parentId) => {
+      if (!present.has(parentId)) {
+        measuredDetailHeights.delete(parentId)
+      }
+    })
+  },
 )
 </script>
 
@@ -544,6 +646,9 @@ watch(
  * get the room of the window instead of a letterbox between the toolbar and the pager.
  */
 .events-grid {
+  /* The bars of the table are as thin as the sticky one underneath it, whichever of the two is on screen. */
+  --events-grid-scrollbar-thickness: 0.875rem;
+
   position: relative;
   display: flex;
   flex-direction: column;
@@ -560,13 +665,49 @@ watch(
  * itself is the one that sits at the foot of a table taller than the window and cannot be reached. Its thumb
  * is hidden so that the end of the table does not show two bars under one another. The strip itself stays, and
  * so does everything it scrolls: the sticky bar is a copy of exactly that movement and writes it back here.
+ *
+ * The grid draws that strip in three pieces - one under the columns pinned to either side and one under the
+ * columns that move - and only the middle one was ever quietened. The two beside it scroll nothing at all, so
+ * a browser bar drawn on them is noise wherever it appears, and they are quietened with it.
  */
-.events-grid:not(.events-grid--pinned) :deep(.ag-body-horizontal-scroll-viewport) {
+.events-grid:not(.events-grid--pinned) :deep(.ag-body-horizontal-scroll-viewport),
+.events-grid :deep(.ag-horizontal-left-spacer),
+.events-grid :deep(.ag-horizontal-right-spacer) {
   scrollbar-width: none;
 }
 
-.events-grid:not(.events-grid--pinned) :deep(.ag-body-horizontal-scroll-viewport)::-webkit-scrollbar {
+.events-grid:not(.events-grid--pinned) :deep(.ag-body-horizontal-scroll-viewport)::-webkit-scrollbar,
+.events-grid :deep(.ag-horizontal-left-spacer)::-webkit-scrollbar,
+.events-grid :deep(.ag-horizontal-right-spacer)::-webkit-scrollbar {
   display: none;
+}
+
+/*
+ * Zoomed there is no sticky bar - the table scrolls inside its own body and its own bars are the ones on
+ * screen - so those take the look the sticky one has on the page rather than whatever the browser draws by
+ * default, and the two ways of reading the same table look like the same table.
+ */
+.events-grid--pinned :deep(.ag-body-horizontal-scroll-viewport),
+.events-grid--pinned :deep(.ag-body-viewport) {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--v-theme-control-border)) transparent;
+}
+
+.events-grid--pinned :deep(.ag-body-horizontal-scroll-viewport)::-webkit-scrollbar,
+.events-grid--pinned :deep(.ag-body-viewport)::-webkit-scrollbar {
+  inline-size: var(--events-grid-scrollbar-thickness);
+  block-size: var(--events-grid-scrollbar-thickness);
+}
+
+.events-grid--pinned :deep(.ag-body-horizontal-scroll-viewport)::-webkit-scrollbar-track,
+.events-grid--pinned :deep(.ag-body-viewport)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.events-grid--pinned :deep(.ag-body-horizontal-scroll-viewport)::-webkit-scrollbar-thumb,
+.events-grid--pinned :deep(.ag-body-viewport)::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--v-theme-control-border));
+  border-radius: 999rem;
 }
 
 /*
@@ -621,9 +762,4 @@ watch(
   inset-inline: 0;
   padding-block: 0;
 }
-
-/* Use for hidding scrollbar */
-/* :deep(.ag-body-horizontal-scroll) {
-  visibility: hidden;
-} */
 </style>

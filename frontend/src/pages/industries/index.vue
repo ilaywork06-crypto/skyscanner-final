@@ -44,11 +44,11 @@
           <p class="industries__description">
             {{ industry.description.length > 0 ? industry.description : 'No description yet.' }}
           </p>
-          <span class="industries__origins">
+          <span class="industries__modules">
             {{
-              industry.entity_origins.length > 0
-                ? `Origins: ${industry.entity_origins.join(', ')}`
-                : 'No entity origins declared yet'
+              industry.modules.length > 0
+                ? `Modules: ${industry.modules.join(', ')}`
+                : 'No entity modules declared yet'
             }}
           </span>
           <div class="industries__card-actions">
@@ -99,26 +99,60 @@
             v-model="draftDescription"
             label="Description"
           />
+          <!--
+            The colour is picked by looking at it rather than by reading its name, so every option and the
+            closed selector paint the very token they stand for.
+          -->
           <v-select
             v-model="draftColor"
             :items="COLOR_ITEMS"
             item-title="title"
             item-value="value"
             label="Colour"
-          />
+          >
+            <template #selection="{ item }">
+              <span class="industries__swatch-row">
+                <span
+                  class="industries__swatch"
+                  :style="swatchStyle(item.value)"
+                />
+                {{ item.title }}
+              </span>
+            </template>
+            <template #item="{ item, props: itemProps }">
+              <v-list-item v-bind="itemProps">
+                <template #prepend>
+                  <span
+                    class="industries__swatch"
+                    :style="swatchStyle(item.value)"
+                  />
+                </template>
+              </v-list-item>
+            </template>
+          </v-select>
           <!--
-            The vocabulary an entity of this industry may name as its origin. Leaving it empty keeps origin
-            an open text field, so an industry nobody has configured yet is never blocked.
+            The vocabulary an entity of this industry may name as its module. A combo box holds one value at a
+            time while it is being typed and only turns it into a chip on Enter, and nothing on screen says
+            so - so a module typed and left there is a module that was never declared. The box says it itself.
           -->
           <v-combobox
-            v-model="draftOrigins"
-            label="Entity origins"
-            hint="The values an entity may name as its origin. Leave empty to accept any text."
+            v-model="draftModules"
+            label="Entity modules"
+            placeholder="Type a module and press Enter"
+            hint="The modules an entity of this industry may name. Leave empty to accept any text."
             persistent-hint
+            persistent-placeholder
             multiple
             chips
             closable-chips
           />
+          <p class="industries__enter-hint">
+            <v-icon
+              size="x-small"
+              icon="mdi-keyboard-return"
+            />
+            {{ ENTER_TO_ADD_HINT }}
+          </p>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -145,19 +179,21 @@
 <script lang="ts">
 import type { Industry } from '@/models/industry'
 import { SkyChip, slugify } from '@skyscanner/sky-ui'
+import { INDUSTRY_COLOUR_NAMES, INDUSTRY_PALETTE, industryToken } from '@/utils/colors'
 
 interface ColorItem {
   title: string
   value: string
 }
 
-const COLOR_ITEMS: ColorItem[] = [
-  { title: 'Amber', value: 'chip-industry-amber' },
-  { title: 'Blue', value: 'chip-industry-blue' },
-  { title: 'Violet', value: 'chip-industry-violet' },
-  { title: 'Rose', value: 'chip-industry-rose' },
-  { title: 'Coral', value: 'chip-industry-coral' },
-]
+/*
+ * The colours on offer are the palette itself rather than a second copy of it, so that a token added to the
+ * theme is offered here without anybody having to remember this list exists.
+ */
+const COLOR_ITEMS: ColorItem[] = INDUSTRY_PALETTE.map((token) => ({
+  title: INDUSTRY_COLOUR_NAMES[token] ?? token,
+  value: token,
+}))
 </script>
 
 <script setup lang="ts">
@@ -168,7 +204,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import { useIndustries } from '@/composables/useIndustries'
 import { useSnackbar } from '@/composables/useSnackbar'
 import { createIndustry, updateIndustry } from '@/requests/schema'
-import { industryToken } from '@/utils/colors'
+import { ENTER_TO_ADD_HINT } from '@/utils/hints'
 
 const { industries, loading, load } = useIndustries()
 const { notify, reportError } = useSnackbar()
@@ -180,11 +216,16 @@ const draftName = ref<string>('')
 const draftKey = ref<string>('')
 const draftDescription = ref<string>('')
 const draftColor = ref<string>(COLOR_ITEMS[0].value)
-const draftOrigins = ref<string[]>([])
+const draftModules = ref<string[]>([])
 
 const canSave = computed<boolean>(() => draftName.value.length > 0 && draftKey.value.length > 0)
 
 const tokenFor = (key: string): string => industryToken(key, industries.value)
+
+/** Paint one option of the colour selector in the very colour it stands for. */
+const swatchStyle = (token: string): Record<string, string> => ({
+  backgroundColor: `rgb(var(--v-theme-${token}))`,
+})
 
 const onNameChange = (value: string) => {
   if (editedKey.value === null) {
@@ -198,7 +239,7 @@ const reset = () => {
   draftKey.value = ''
   draftDescription.value = ''
   draftColor.value = COLOR_ITEMS[0].value
-  draftOrigins.value = []
+  draftModules.value = []
 }
 
 const openCreate = () => {
@@ -212,21 +253,21 @@ const openEdit = (industry: Industry) => {
   draftKey.value = industry.key
   draftDescription.value = industry.description
   draftColor.value = industry.color
-  draftOrigins.value = [...industry.entity_origins]
+  draftModules.value = [...industry.modules]
   dialog.value = true
 }
 
 const onSave = async (): Promise<void> => {
   saving.value = true
   try {
-    const origins = draftOrigins.value.map((origin) => origin.trim()).filter((origin) => origin.length > 0)
+    const modules = draftModules.value.map((module) => module.trim()).filter((module) => module.length > 0)
     if (editedKey.value === null) {
       await createIndustry({
         key: draftKey.value,
         name: draftName.value,
         description: draftDescription.value,
         color: draftColor.value,
-        entity_origins: origins,
+        modules,
       })
       notify('The industry was declared', 'success')
     } else {
@@ -234,7 +275,7 @@ const onSave = async (): Promise<void> => {
         name: draftName.value,
         description: draftDescription.value,
         color: draftColor.value,
-        entity_origins: origins,
+        modules,
       })
       notify('The industry was updated', 'success')
     }
@@ -325,7 +366,7 @@ onMounted(() => {
   flex: 1 1 auto;
 }
 
-.industries__origins {
+.industries__modules {
   font-size: 0.8125rem;
   opacity: 0.7;
 }
@@ -340,6 +381,30 @@ onMounted(() => {
 .industries__link {
   font-size: 0.875rem;
   color: rgb(var(--v-theme-primary));
+}
+
+/* The key press a combo box needs between two values, said beside the box rather than only in its hint. */
+.industries__enter-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  opacity: 0.75;
+}
+
+.industries__swatch {
+  display: inline-block;
+  inline-size: 1rem;
+  block-size: 1rem;
+  border-radius: 0.25rem;
+  border: 0.0625rem solid rgba(var(--v-theme-on-surface), 0.25);
+  flex: 0 0 auto;
+}
+
+.industries__swatch-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .industries__loading {

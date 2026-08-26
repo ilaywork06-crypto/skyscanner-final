@@ -21,6 +21,7 @@ from skyscanner_models.enums import (
     ExperimentResult,
     FieldScope,
     FieldType,
+    OptionalEventField,
     RevisionTarget,
     UploadSource,
 )
@@ -30,12 +31,27 @@ from skyscanner_models.query import FilterCondition, SortSpecification
 from skyscanner_models.revision import FieldChange, RevisionResponse
 from skyscanner_models.subscription import SubscriptionResponse, SubscriptionTrigger
 from skyscanner_models.industry import IndustryResponse
+from skyscanner_models.platform import PlatformResponse
 from skyscanner_models.template import TemplateColumn, TemplateResponse
 
 # ----- CLASSES ----- #
 
 
-class EntityDocument(BaseModel):
+class SoftDeletable(BaseModel):
+    """
+    The marker every document and sub document that can be removed carries instead of being erased.
+
+    Nothing is ever taken out of the document store: a removal writes this flag and every read leaves the
+    flagged documents behind. That keeps the history, the exports and the file references of a removed
+    object answerable, and it is the only way a deletion can be undone at all.
+    """
+
+    deleted: bool = Field(default=False, description="Whether the document was removed")
+    deleted_at: datetime | None = Field(default=None, description="UTC moment the document was removed")
+    deleted_by: str | None = Field(default=None, description="User that removed the document")
+
+
+class EntityDocument(SoftDeletable):
     """
     One entity stored inside the objects list of an event, holding its file sets and its dynamic values.
     """
@@ -48,7 +64,7 @@ class EntityDocument(BaseModel):
     object_type: ObjectTypeReference = Field(description="Type definition the entity is an instance of")
     object_type_name: str = Field(default="", description="Denormalised type name used by the table")
     object_type_key: str = Field(default="", description="Denormalised type key used to group the entities")
-    origin: str | None = Field(default=None, description="System or sensor the entity originated at")
+    module: str | None = Field(default=None, description="System or sensor module the entity came from")
     code_version: str | None = Field(default=None, description="Version of the code that produced the data")
     status: EntityStatus = Field(default=EntityStatus.RAW, description="Parsing state of the entity")
     notes: str = Field(default="", description="Free text information supplied by the user")
@@ -79,7 +95,7 @@ class EntityDocument(BaseModel):
             event_id=event_id,
             object_type=self.object_type,
             object_type_key=self.object_type_key,
-            origin=self.origin,
+            module=self.module,
             code_version=self.code_version,
             status=self.status,
             notes=self.notes,
@@ -97,7 +113,7 @@ class EntityDocument(BaseModel):
         )
 
 
-class EventDocument(BaseModel):
+class EventDocument(SoftDeletable):
     """
     One event of the inventory, carrying its own files, its dynamic values and every entity nested inside it.
     """
@@ -112,7 +128,7 @@ class EventDocument(BaseModel):
     event_type_names: list[str] = Field(default_factory=list, description="Denormalised type names for the table")
     event_type_keys: list[str] = Field(default_factory=list, description="Denormalised type keys used for filtering")
     industry: str = Field(default="", description="Industry key the event belongs to")
-    platform: str = Field(default="", description="Platform the event was produced on")
+    platforms: list[str] = Field(default_factory=list, description="Keys of the platforms the event was produced on")
     status: EventStatus = Field(default=EventStatus.RAW, description="Life cycle state of the event")
     experiment_result: ExperimentResult | None = Field(default=None, description="How the activity itself turned out")
     event_date: datetime | None = Field(default=None, description="UTC moment the activity itself happened")
@@ -128,6 +144,15 @@ class EventDocument(BaseModel):
     created_by: str | None = Field(default=None, description="User that uploaded the event")
     updated_by: str | None = Field(default=None, description="User that last changed the event")
 
+    @property
+    def live_objects(self) -> list["EntityDocument"]:
+        """
+        Read the entities of the event that were not removed, which is the only list anybody outside sees.
+
+        :return: The entities still belonging to the event.
+        """
+        return [entity for entity in self.objects if not entity.deleted]
+
     def to_summary(self) -> EventSummaryResponse:
         """
         Project the stored event into the lightweight representation that feeds one row of the inventory grid.
@@ -141,7 +166,7 @@ class EventDocument(BaseModel):
             name=self.name,
             event_type=self.event_type,
             industry=self.industry,
-            platform=self.platform,
+            platforms=list(self.platforms),
             status=self.status,
             experiment_result=self.experiment_result,
             event_date=self.event_date,
@@ -165,7 +190,7 @@ class EventDocument(BaseModel):
 
         return EventResponse(
             **summary.model_dump(),
-            objects=[entity.to_response(event_id=self.id) for entity in self.objects],
+            objects=[entity.to_response(event_id=self.id) for entity in self.live_objects],
             upload_source=self.upload_source,
         )
 
@@ -208,7 +233,7 @@ class RevisionDocument(BaseModel):
         )
 
 
-class FieldDocument(BaseModel):
+class FieldDocument(SoftDeletable):
     """
     One dynamic field declaration, shaping the create wizard, the validation and the generated grid column.
     """
@@ -223,8 +248,12 @@ class FieldDocument(BaseModel):
     default: JsonValue = Field(default=None, description="Value used when the user leaves the field empty")
     required: bool = Field(default=False, description="Whether a value has to be supplied")
     scope: FieldScope = Field(default=FieldScope.EVENT, description="Whether the field belongs to events or entities")
-    industry: str | None = Field(default=None, description="Industry key owning the field, empty when the field is shared")
+    industry: str | None = Field(
+        default=None,
+        description="Industry key owning the field, empty when the field is shared",
+    )
     entity_type: str | None = Field(default=None, description="Entity type key the field is limited to")
+    additional: bool = Field(default=False, description="Whether the field belongs to the additional data block")
     metadata: FieldMetadata = Field(default_factory=FieldMetadata, description="Rendering descriptors of the field")
     constraints: list[FieldConstraint] = Field(default_factory=list, description="Validation rules of the field")
     depends_on: list[FieldDependency] = Field(
@@ -249,7 +278,7 @@ class FieldDocument(BaseModel):
         return FieldResponse(**self.model_dump(by_alias=False))
 
 
-class TypeDocument(BaseModel):
+class TypeDocument(SoftDeletable):
     """
     One declared event type or entity type, offered by the create wizard and shown as a tab on the event page.
     """
@@ -257,12 +286,26 @@ class TypeDocument(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str = Field(default_factory=new_id, alias="_id", description="Identifier of the type")
-    kind: str = Field(default="event", description="Whether the type describes an event or an entity")
+    kind: str = Field(
+        default="event",
+        description="Whether the declaration describes an event, an entity or a platform",
+    )
     key: str = Field(description="Machine key of the type")
     name: str = Field(description="Label shown for the type")
     description: str = Field(default="", description="Explanation of what the type covers")
     icon: str | None = Field(default=None, description="Icon name rendered next to the type")
-    industry: str | None = Field(default=None, description="Industry owning the type, empty when the type is shared")
+    # A declaration may serve several industries at once, and one that names none is shared by all of them.
+    industries: list[str] = Field(default_factory=list, description="Industries the declaration belongs to")
+    fields: list[OptionalEventField] = Field(
+        default_factory=list,
+        description="Built in event fields an event type asks for, empty for the other kinds",
+    )
+    # The declared event fields an event type asks for, named by their key. A key whose declaration was
+    # removed since is simply not offered any more, which is why nothing here is resolved on write.
+    custom_fields: list[str] = Field(
+        default_factory=list,
+        description="Keys of the declared event fields an event type asks for, empty for the other kinds",
+    )
     order: int = Field(default=100, description="Relative position of the type in the selectors")
     created_at: datetime = Field(default_factory=utc_now, description="UTC moment the type was declared")
 
@@ -277,7 +320,9 @@ class TypeDocument(BaseModel):
             key=self.key,
             name=self.name,
             description=self.description,
-            industry=self.industry,
+            industries=list(self.industries),
+            fields=list(self.fields),
+            custom_fields=list(self.custom_fields),
         )
 
     def to_entity_type(self) -> EntityTypeResponse:
@@ -292,7 +337,21 @@ class TypeDocument(BaseModel):
             name=self.name,
             description=self.description,
             icon=self.icon,
-            industry=self.industry,
+            industries=list(self.industries),
+        )
+
+    def to_platform(self) -> PlatformResponse:
+        """
+        Project the stored declaration into the platform representation the wizard offers.
+
+        :return: The API representation of the platform.
+        """
+        return PlatformResponse(
+            id=self.id,
+            key=self.key,
+            name=self.name,
+            description=self.description,
+            industries=list(self.industries),
         )
 
     def to_reference(self) -> ObjectTypeReference:
@@ -304,7 +363,7 @@ class TypeDocument(BaseModel):
         return ObjectTypeReference(id=self.id, name=self.name)
 
 
-class IndustryDocument(BaseModel):
+class IndustryDocument(SoftDeletable):
     """
     One industry of the organisation, rendered as a tab above the inventory table and used to scope the schema.
     """
@@ -316,9 +375,9 @@ class IndustryDocument(BaseModel):
     name: str = Field(description="Label shown for the industry")
     description: str = Field(default="", description="Explanation of what the industry covers")
     color: str = Field(default="industryAmber", description="Theme colour token used for the industry chip")
-    # The vocabulary an entity of this industry may name as its origin. An industry that has not declared one
+    # The vocabulary an entity of this industry may name as its module. An industry that has not declared one
     # accepts any text, so an empty system keeps working before anybody sat down to define the list.
-    entity_origins: list[str] = Field(default_factory=list, description="Values an entity may name as its origin")
+    modules: list[str] = Field(default_factory=list, description="Modules an entity of this industry may name")
     order: int = Field(default=100, description="Relative position of the industry tab")
     created_at: datetime = Field(default_factory=utc_now, description="UTC moment the industry was registered")
 
@@ -335,13 +394,13 @@ class IndustryDocument(BaseModel):
             name=self.name,
             description=self.description,
             color=self.color,
-            entity_origins=self.entity_origins,
+            modules=list(self.modules),
             event_count=event_count,
             created_at=self.created_at,
         )
 
 
-class TemplateDocument(BaseModel):
+class TemplateDocument(SoftDeletable):
     """
     One saved table layout, letting a user restore the columns, filters and ordering they work with.
     """
@@ -370,7 +429,7 @@ class TemplateDocument(BaseModel):
         return TemplateResponse(**self.model_dump(by_alias=False))
 
 
-class SubscriptionDocument(BaseModel):
+class SubscriptionDocument(SoftDeletable):
     """
     One mail subscription, describing who wants to hear about which industry, event type or single event.
     """

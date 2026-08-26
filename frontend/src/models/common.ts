@@ -17,16 +17,27 @@ type FieldType =
   | 'enum'
   | 'file'
   | 'json'
+  | 'coordinate'
 
 type EventStatus = 'draft' | 'raw' | 'parsed' | 'partial' | 'failed' | 'archived'
 
-type EntityStatus = 'raw' | 'parsing' | 'parsed' | 'failed'
+type EntityStatus = 'raw' | 'parsing' | 'partially_parsed' | 'parsed' | 'failed'
 
 type ExperimentResult = 'successful' | 'partial' | 'failed'
 
 type ParseState = 'all' | 'parsed' | 'not_parsed'
 
 type FieldScope = 'event' | 'entity'
+
+/** A point on the globe, held as the three numbers the map picker hands back. */
+type Coordinate = {
+  lon: number
+  lat: number
+  alt: number | null
+}
+
+/** A built in event field that only the event types declaring it ask for. */
+type OptionalEventField = 'reference_id' | 'event_date' | 'experiment_result' | 'notes'
 
 type ObjectTypeReference = {
   id: string
@@ -74,6 +85,7 @@ interface PageResponse<ItemT> {
 export type {
   Artifact,
   ArtifactKind,
+  Coordinate,
   EntityStatus,
   EventStatus,
   ExperimentResult,
@@ -83,6 +95,7 @@ export type {
   MetadataAttribute,
   ObjectTypeReference,
   OperationResult,
+  OptionalEventField,
   PageResponse,
   ParseState,
 }

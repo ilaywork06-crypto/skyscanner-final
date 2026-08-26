@@ -37,6 +37,7 @@ class FieldRepository(BaseRepository[FieldDocument]):
         """
         Create the indexes that keep a field key unique inside the scope and the industry that declared it.
         """
+        await super().ensure_indexes()
         await self.create_indexes(
             [
                 IndexModel(
@@ -54,6 +55,7 @@ class FieldRepository(BaseRepository[FieldDocument]):
         industry: str | None = None,
         entity_type: str | None = None,
         include_shared: bool = True,
+        additional: bool | None = None,
         offset: int = 0,
         limit: int = 0,
     ) -> list[FieldDocument]:
@@ -64,6 +66,7 @@ class FieldRepository(BaseRepository[FieldDocument]):
         :param industry: Industry whose own declarations are added to the shared ones.
         :param entity_type: Entity type the declarations are limited to.
         :param include_shared: Whether the declarations that belong to no industry are included.
+        :param additional: Which half of the form is read, both halves when it is left open.
         :param offset: Amount of declarations skipped before collecting.
         :param limit: Largest amount of declarations that is returned, zero for all of them.
         :return: The matching declarations ordered by their relative position.
@@ -75,6 +78,10 @@ class FieldRepository(BaseRepository[FieldDocument]):
             industry_clauses.append({"industry": industry})
 
         query: dict[str, Any] = {"scope": scope.value}
+        if additional is not None:
+            # Declarations written before the two halves existed carry no flag at all and describe the object
+            # itself, which is what the absent value has to be read as.
+            query["additional"] = True if additional else {"$ne": True}
         if industry_clauses:
             query["$or"] = industry_clauses
         if entity_type:

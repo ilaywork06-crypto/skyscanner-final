@@ -79,17 +79,17 @@ class ExportService:
         Materialise the events of the current view, and the entities nested inside them, in the asked format.
 
         An event is only half of what the user is looking at: the telemetries, logs and videos hanging off it
-        carry their own status, origin, files and dynamic values, and an export that drops them hands over a
+        carry their own status, module, files and dynamic values, and an export that drops them hands over a
         sheet that answers none of the questions the entities were uploaded for. The two formats carry them
         differently, because a document nests and a sheet does not.
 
         JSON keeps the nesting the system itself has: every event object gains an entities list, and each
-        entry of it describes one entity with its name, type, origin, status, code version, notes, the names
+        entry of it describes one entity with its name, type, module, status, code version, notes, the names
         and the amount of its files per role, its dynamic values and who created it when.
 
         CSV is flat, so the entities are folded into columns instead. The default summary mode keeps one row
         per event and appends the counted view of its entities - how many there are, their names, their types,
-        their origins, how many files they hold together and how many of them sit in each status - which is
+        their modules, how many files they hold together and how many of them sit in each status - which is
         what the reader of an inventory sheet wants, and which keeps the row count of the export equal to the
         amount of events. The row mode instead writes one row per entity, repeating the columns of the event
         on each of them and adding the attributes of the single entity, for the reader who came for the
@@ -154,7 +154,7 @@ class ExportService:
             entries.extend(
                 _entries_for(files=document.additional_files, folder=f"{folder}/additional_files"),
             )
-            for entity in document.objects:
+            for entity in document.live_objects:
                 entity_folder = f"{folder}/{_safe(entity.object_type_name)}/{_safe(entity.name)}"
                 entries.extend(_entries_for(files=entity.raw_files, folder=f"{entity_folder}/raw_files"))
                 entries.extend(_entries_for(files=entity.parsed_files, folder=f"{entity_folder}/parsed_files"))
@@ -187,7 +187,7 @@ def _events_as_json(documents: list[EventDocument], columns: list[str]) -> str:
     payload = [
         {
             **{key: row.get(key) for key in selected},
-            ENTITIES_KEY: [_entity_payload(entity=entity) for entity in document.objects],
+            ENTITIES_KEY: [_entity_payload(entity=entity) for entity in document.live_objects],
         }
         for row, document in zip(rows, documents, strict=True)
     ]
@@ -213,16 +213,16 @@ def _events_as_csv(documents: list[EventDocument], columns: list[str], entity_mo
     for document in documents:
         event = _flatten(row=event_row(document=document))
         if not per_entity:
-            summary = _entity_summary(entities=document.objects)
+            summary = _entity_summary(entities=document.live_objects)
             entity_keys.update(dict.fromkeys(summary))
             rows.append({**event, **summary})
             continue
         # An event without a single entity still belongs in the sheet, so it is written on its own rather
         # than disappearing with the rows its missing entities would have produced.
-        if not document.objects:
+        if not document.live_objects:
             rows.append(event)
             continue
-        for entity in document.objects:
+        for entity in document.live_objects:
             entity_columns = _entity_columns(entity=entity)
             entity_keys.update(dict.fromkeys(entity_columns))
             rows.append({**event, **entity_columns})
@@ -273,7 +273,7 @@ def _entity_summary(entities: list[EntityDocument]) -> dict[str, Any]:
         f"{prefix}count": len(entities),
         f"{prefix}names": LIST_JOIN.join(entity.name for entity in entities),
         f"{prefix}types": LIST_JOIN.join(_unique(values=[item.object_type_name for item in entities])),
-        f"{prefix}origins": LIST_JOIN.join(_unique(values=[item.origin or "" for item in entities])),
+        f"{prefix}modules": LIST_JOIN.join(_unique(values=[item.module or "" for item in entities])),
         f"{prefix}file_count": file_count,
     }
     summary.update({f"{prefix}status_{status.value}": counts[status] for status in EntityStatus})
@@ -292,7 +292,7 @@ def _entity_columns(entity: EntityDocument) -> dict[str, Any]:
         f"{ENTITY_COLUMN_PREFIX}id": entity.object_id,
         f"{ENTITY_COLUMN_PREFIX}name": entity.name,
         f"{ENTITY_COLUMN_PREFIX}type": entity.object_type_name,
-        f"{ENTITY_COLUMN_PREFIX}origin": entity.origin or "",
+        f"{ENTITY_COLUMN_PREFIX}module": entity.module or "",
         f"{ENTITY_COLUMN_PREFIX}status": entity.status.value,
         f"{ENTITY_COLUMN_PREFIX}code_version": entity.code_version or "",
         f"{ENTITY_COLUMN_PREFIX}notes": entity.notes,
@@ -342,7 +342,7 @@ def _entity_payload(entity: EntityDocument) -> dict[str, Any]:
         "entity_id": entity.object_id,
         "name": entity.name,
         "type": entity.object_type_name,
-        "origin": entity.origin,
+        "module": entity.module,
         "status": entity.status.value,
         "code_version": entity.code_version,
         "notes": entity.notes,

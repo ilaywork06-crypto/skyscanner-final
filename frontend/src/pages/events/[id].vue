@@ -119,12 +119,20 @@
             :token="industryChipToken"
           />
         </div>
-        <div class="event-page__fact">
+        <!-- An event may have run on several platforms, so every one of them is named rather than the first. -->
+        <div
+          v-if="event.platforms.length > 0"
+          class="event-page__fact"
+        >
           <span class="event-page__fact-label">PLATFORM</span>
-          <SkyChip
-            :label="event.platform"
-            token="chip-platform"
-          />
+          <span class="event-page__fact-chips">
+            <SkyChip
+              v-for="platform in event.platforms"
+              :key="platform"
+              :label="platform"
+              token="chip-platform"
+            />
+          </span>
         </div>
       </section>
 
@@ -587,6 +595,13 @@ watch(eventId, reload)
   flex-direction: column;
   gap: 0.25rem;
   min-inline-size: 0;
+}
+
+/* Several platforms wrap inside the one fact rather than each of them becoming a fact of its own. */
+.event-page__fact-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
 }
 
 .event-page__fact-label {

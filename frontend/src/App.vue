@@ -88,9 +88,22 @@ body,
   min-inline-size: 0;
 }
 
+/*
+ * A cell of the table has to keep what it holds inside its own column. The grid only clips the cells whose
+ * height is fixed, so a cell that grows to fit its content - a list of files, above all - used to let a long
+ * file name run straight across the columns beside it. Clipping is stated here for every cell, and the
+ * children are allowed to shrink below their content so that the value ellipsises instead of being cut.
+ */
 .sky-cell {
   display: flex;
   align-items: center;
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.sky-cell > * {
+  min-inline-size: 0;
+  max-inline-size: 100%;
 }
 
 /*

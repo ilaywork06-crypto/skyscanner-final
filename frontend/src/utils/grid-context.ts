@@ -18,13 +18,20 @@ interface GridContext {
   downloadArtifact: (artifact: Artifact) => void
   findRow: (rowId: string) => GridRow | undefined
   /*
-   * A cell has no way of asking what the rows were searched for or which industry the table is narrowed to,
-   * and both decide how it renders: the search term is what a cell paints its matches with, and the industry
-   * is what an expanded panel is read against. They travel with the rest of the context so that no renderer
-   * has to reach back into the page that owns the table.
+   * How tall the panel of one expanded row turned out to be, once it has rendered and can be measured.
+   *
+   * A row of the grid is given its height before anything is drawn inside it, so the table can only guess
+   * at the panel out of what it knows about the event - and a guess is either short, which cuts the panel
+   * off, or generous, which leaves a band of empty table underneath it. The panel measures itself instead
+   * and says so, and the row is given exactly that.
+   */
+  reportDetailHeight: (parentId: string, height: number) => void
+  /*
+   * A cell has no way of asking what the rows on screen were searched for, and that is what it paints its
+   * matches with, so the term travels with the rest of the context rather than every renderer reaching back
+   * into the page that owns the table.
    */
   search: string
-  industryFilter: string | null
 }
 
 const EMPTY_CONTEXT: GridContext = {
@@ -35,8 +42,8 @@ const EMPTY_CONTEXT: GridContext = {
   openArtifact: () => undefined,
   downloadArtifact: () => undefined,
   findRow: () => undefined,
+  reportDetailHeight: () => undefined,
   search: '',
-  industryFilter: null,
 }
 
 /**

@@ -1,42 +1,23 @@
 <template>
   <div class="detail-panel">
     <!--
-      Inside an industry tab the fields of that industry are already columns of the table above, so repeating
-      them here would only say the same thing twice; the global view is the one that has nowhere else to show them.
+      Everything the event was written with beyond its built in columns - the fields its industry declared,
+      the ones its type asks for and anything a script left on it - laid out under the row it belongs to
+      rather than hidden behind a horizontal scroll of the inventory.
     -->
     <section
-      v-if="showIndustryFields"
+      v-if="!loading"
       class="detail-panel__section"
     >
-      <h3 class="detail-panel__title">
-        INDUSTRY FIELDS
-      </h3>
-      <div class="detail-panel__table">
-        <div class="detail-panel__head">
-          <div
-            v-for="column in industryColumns"
-            :key="column.colId"
-            class="detail-panel__cell"
-          >
-            {{ column.headerName }}
-          </div>
-        </div>
-        <div class="detail-panel__row">
-          <div
-            v-for="column in industryColumns"
-            :key="column.colId"
-            class="detail-panel__cell"
-          >
-            <DynamicCell
-              :column="column"
-              :row="eventRow"
-              :industries="industries"
-              @open="emit('open', $event)"
-              @download="emit('download', $event)"
-            />
-          </div>
-        </div>
-      </div>
+      <AttributesTable
+        :columns="eventAttributeColumns"
+        :row="eventRow"
+        :industries="industries"
+        title="Additional Event Attributes"
+        empty-text="This event carries no additional attributes."
+        @open="emit('open', $event)"
+        @download="emit('download', $event)"
+      />
     </section>
 
     <!-- The groups wait for their schemas, so a table never appears for an instant without its columns. -->
@@ -124,8 +105,6 @@ interface Props {
   eventRow: GridRow
   industry: string
   entities?: EntityResponse[] | null
-  /** The industry the inventory is narrowed to, or nothing while every industry is being shown. */
-  industryFilter?: string | null
 }
 
 interface Emits {
@@ -144,7 +123,7 @@ interface EntityGroup {
 import { computed, onMounted, ref, watch } from 'vue'
 
 import AddEntityDialog from '@/components/AddEntityDialog.vue'
-import DynamicCell from '@/components/DynamicCell.vue'
+import AttributesTable from '@/components/AttributesTable.vue'
 import EntityTable from '@/components/EntityTable.vue'
 import { useSnackbar } from '@/composables/useSnackbar'
 import { useIndustries } from '@/composables/useIndustries'
@@ -152,9 +131,10 @@ import { listEntities } from '@/requests/entities'
 import { readEvent } from '@/requests/events'
 import { readEntityColumns, readEventColumns } from '@/requests/grid'
 import { downloadEntityArchive, toArchiveSources } from '@/requests/storage'
+import { attributeColumns } from '@/utils/grid-columns'
 import { entityToRow, readText } from '@/utils/rows'
 
-const props = withDefaults(defineProps<Props>(), { entities: null, industryFilter: null })
+const props = withDefaults(defineProps<Props>(), { entities: null })
 const emit = defineEmits<Emits>()
 
 const { industries } = useIndustries()
@@ -163,7 +143,7 @@ const { notify, reportError } = useSnackbar()
 const loading = ref<boolean>(false)
 const loadedEntities = ref<EntityResponse[]>([])
 const entityColumns = ref<Record<string, GeneratedColumn[]>>({})
-const industryColumns = ref<GeneratedColumn[]>([])
+const eventColumns = ref<GeneratedColumn[]>([])
 const eventDetail = ref<EventDetail | null>(null)
 const entityDialog = ref<boolean>(false)
 const pendingTypeKey = ref<string | null>(null)
@@ -171,10 +151,6 @@ const editedEntity = ref<EntityResponse | null>(null)
 const archiving = ref<boolean>(false)
 
 const effectiveEntities = computed<EntityResponse[]>(() => props.entities ?? loadedEntities.value)
-
-const showIndustryFields = computed<boolean>(
-  () => props.industryFilter === null && industryColumns.value.length > 0,
-)
 
 /*
  * The entities are grouped by the key of their type rather than by its label, because the key is what
@@ -195,6 +171,22 @@ const entityGroups = computed<EntityGroup[]>(() => {
 
 const columnsOf = (typeKey: string): GeneratedColumn[] => entityColumns.value[typeKey] ?? []
 
+/*
+ * The generated columns of the inventory for this industry, read only so that the attributes underneath the
+ * event can be rendered the way their own declarations ask for rather than as a wall of text.
+ */
+const eventAttributeColumns = computed<GeneratedColumn[]>(() =>
+  attributeColumns(eventColumns.value, props.eventRow),
+)
+
+/**
+ * Read the column definitions of the inventory, which is what describes the attributes of the event itself.
+ */
+const loadEventColumns = async (): Promise<void> => {
+  const configuration = await readEventColumns(props.industry.length > 0 ? props.industry : null)
+  eventColumns.value = configuration.columns
+}
+
 /**
  * Read the column definitions of every entity type present, so each group follows its own declared schema.
  */
@@ -211,17 +203,10 @@ const loadEntityColumns = async (): Promise<void> => {
 const load = async (): Promise<void> => {
   loading.value = true
   try {
-    /* Inside an industry tab those fields are columns of the table already, so their schema is not read. */
-    if (props.industryFilter === null) {
-      const eventConfiguration = await readEventColumns(props.industry)
-      industryColumns.value = eventConfiguration.columns.filter(
-        (column) => column.dynamic && column.industry === props.industry,
-      )
-    }
     if (props.entities === null) {
       loadedEntities.value = await listEntities(props.eventId)
     }
-    await loadEntityColumns()
+    await Promise.all([loadEventColumns(), loadEntityColumns()])
   } catch (error) {
     reportError(error)
   } finally {
@@ -347,9 +332,16 @@ watch(() => props.eventId, load)
   overflow: hidden;
 }
 
+/*
+ * The panel measures itself and the row it sits in is given what it measures, so a spinner on its own would
+ * collapse the row and then throw it open again once the entities arrived. The wait is given about the room
+ * the panel is going to need, which turns that into one modest adjustment rather than a jump.
+ */
 .detail-panel__loading {
   display: flex;
+  align-items: center;
   justify-content: center;
+  min-block-size: 10rem;
   padding-block: 1rem;
 }
 

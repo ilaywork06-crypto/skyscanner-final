@@ -10,7 +10,8 @@ interface EntityType {
   name: string
   description: string
   icon: string | null
-  industry: string | null
+  /** The industries the type belongs to. An empty list means every industry may use it. */
+  industries: string[]
 }
 
 type EntityResponse = {
@@ -20,7 +21,7 @@ type EntityResponse = {
   event_id: string
   object_type: ObjectTypeReference
   object_type_key: string
-  origin: string | null
+  module: string | null
   code_version: string | null
   status: EntityStatus
   notes: string
@@ -40,7 +41,7 @@ type EntityResponse = {
 interface EntityCreateRequest {
   name: string
   entity_type_key: string
-  origin: string | null
+  module: string | null
   code_version: string | null
   status: EntityStatus
   notes: string
@@ -57,7 +58,7 @@ interface EntityUpdateRequest {
   /** Why the change is being made. The service records it in the edit history and refuses an empty one. */
   reason: string
   name?: string
-  origin?: string | null
+  module?: string | null
   code_version?: string | null
   status?: EntityStatus
   notes?: string

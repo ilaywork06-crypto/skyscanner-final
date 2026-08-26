@@ -48,7 +48,12 @@ const parseColumn = (column: GeneratedColumn, options: ParseOptions): ColDef<Gri
     floatingFilter: column.floatingFilter,
     autoHeight: column.autoHeight,
     cellRendererParams: { ...EMPTY_RENDERER_PARAMS, ...column.cellRendererParams },
-    headerTooltip: column.headerName,
+    /*
+     * A header carries no tooltip of its own: it said the header again, which is the one thing already on
+     * screen. A header too long for its column wraps instead, which is what the grid options ask for.
+     */
+    wrapHeaderText: true,
+    autoHeaderHeight: true,
   }
 
   if (column.flex !== null) {
@@ -64,14 +69,10 @@ const parseColumn = (column: GeneratedColumn, options: ParseOptions): ColDef<Gri
     definition.width = column.width
   }
   if (column.pinned === 'left' || column.pinned === 'right') {
-    console.log(column)
     definition.pinned = column.pinned
     definition.lockPinned = true
     definition.lockPosition = column.pinned
     definition.suppressMovable = true
-  }
-  if (column.tooltipField !== null) {
-    definition.tooltipField = column.tooltipField
   }
   if (column.headerClass !== null) {
     definition.headerClass = column.headerClass

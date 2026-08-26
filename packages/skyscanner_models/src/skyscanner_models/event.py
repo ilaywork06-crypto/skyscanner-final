@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from skyscanner_models.common import Artifact, MetadataAttribute, ObjectTypeReference
 from skyscanner_models.entity import EntityCreateRequest, EntityResponse
-from skyscanner_models.enums import EventStatus, ExperimentResult, UploadSource
+from skyscanner_models.enums import EventStatus, ExperimentResult, OptionalEventField, UploadSource
 
 # ----- CLASSES ----- #
 
@@ -28,7 +28,18 @@ class EventTypeResponse(BaseModel):
     key: str = Field(description="Machine key of the event type")
     name: str = Field(description="Label shown for the event type")
     description: str = Field(default="", description="Explanation of what the event type covers")
-    industry: str | None = Field(default=None, description="Industry owning the type, empty when the type is shared")
+    industries: list[str] = Field(
+        default_factory=list,
+        description="Industries the type belongs to, empty when the type is shared by all of them",
+    )
+    fields: list[OptionalEventField] = Field(
+        default_factory=list,
+        description="Built in event fields this type asks for on top of the ones every event carries",
+    )
+    custom_fields: list[str] = Field(
+        default_factory=list,
+        description="Keys of the declared event fields this type asks for on top of the built in ones",
+    )
 
 
 class EventTypeCreateRequest(BaseModel):
@@ -41,7 +52,24 @@ class EventTypeCreateRequest(BaseModel):
     key: str = Field(description="Machine key of the event type")
     name: str = Field(description="Label shown for the event type")
     description: str = Field(default="", description="Explanation of what the event type covers")
-    industry: str | None = Field(default=None, description="Industry owning the type, empty when the type is shared")
+    industries: list[str] = Field(
+        default_factory=list,
+        description="Industries the type belongs to, empty when the type is shared by all of them",
+    )
+    # An experiment result means nothing on a type that does not describe an experiment, which is exactly why
+    # the built in fields a type asks for are declared rather than shown to everybody.
+    fields: list[OptionalEventField] = Field(
+        default_factory=list,
+        description="Built in event fields this type asks for on top of the ones every event carries",
+    )
+    # The built in fields above are the ones the service itself understands, and their vocabulary is fixed.
+    # Anything else an event ought to be asked for is declared as an event field of its own on the Schema
+    # page, and a type names the ones it wants here - so a new question about an event costs a declaration
+    # rather than a change to this enumeration and to every form that reads it.
+    custom_fields: list[str] = Field(
+        default_factory=list,
+        description="Keys of the declared event fields this type asks for on top of the built in ones",
+    )
     order: int = Field(default=100, description="Relative position of the type in the selectors")
 
 
@@ -54,13 +82,15 @@ class EventTypeUpdateRequest(BaseModel):
 
     name: str | None = Field(default=None, description="New label of the event type")
     description: str | None = Field(default=None, description="New explanation of what the type covers")
-    industry: str | None = Field(default=None, description="New industry owning the type")
+    industries: list[str] | None = Field(default=None, description="New industries the type belongs to")
+    fields: list[OptionalEventField] | None = Field(default=None, description="New built in fields the type asks for")
+    custom_fields: list[str] | None = Field(default=None, description="New declared event fields the type asks for")
     order: int | None = Field(default=None, description="New relative position of the type")
 
 
 class EventCreateRequest(BaseModel):
     """
-    The payload produced by the three steps of the create wizard, including the entities added in the last step.
+    The payload produced by the two steps of the create wizard, including the entities added in the last step.
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -69,14 +99,17 @@ class EventCreateRequest(BaseModel):
     reference_id: str = Field(default="", description="Identifier the user knows the event by")
     event_type_keys: list[str] = Field(default_factory=list, description="Keys of the event types the event matches")
     industry: str = Field(description="Industry key the event belongs to")
-    platform: str = Field(default="", description="Platform the event was produced on")
+    platforms: list[str] = Field(default_factory=list, description="Keys of the platforms the event was produced on")
     status: EventStatus = Field(default=EventStatus.RAW, description="Initial life cycle state of the event")
     experiment_result: ExperimentResult | None = Field(default=None, description="How the activity itself turned out")
     event_date: datetime | None = Field(default=None, description="UTC moment the activity itself happened")
     notes: str = Field(default="", description="Free text information supplied by the user")
     upload_source: UploadSource = Field(default=UploadSource.MANUAL, description="How the event reached the system")
     additional_files: list[Artifact] = Field(default_factory=list, description="Files attached to the event itself")
-    metadata: list[MetadataAttribute] = Field(default_factory=list, description="Values of the dynamic event fields")
+    metadata: list[MetadataAttribute] = Field(
+        default_factory=list,
+        description="Free values written onto the event, which only an automated caller supplies",
+    )
     entities: list[EntityCreateRequest] = Field(default_factory=list, description="Entities created with the event")
 
 
@@ -95,7 +128,7 @@ class EventUpdateRequest(BaseModel):
     reference_id: str | None = Field(default=None, description="New identifier the user knows the event by")
     event_type_keys: list[str] | None = Field(default=None, description="Replacement list of event type keys")
     industry: str | None = Field(default=None, description="New industry key of the event")
-    platform: str | None = Field(default=None, description="New platform of the event")
+    platforms: list[str] | None = Field(default=None, description="Replacement list of platform keys")
     status: EventStatus | None = Field(default=None, description="New life cycle state of the event")
     experiment_result: ExperimentResult | None = Field(default=None, description="New outcome of the activity")
     event_date: datetime | None = Field(default=None, description="New UTC moment the activity happened")
@@ -117,7 +150,7 @@ class EventSummaryResponse(BaseModel):
     name: str = Field(description="Name of the event")
     event_type: list[ObjectTypeReference] = Field(default_factory=list, description="Types the event matches")
     industry: str = Field(description="Industry key the event belongs to")
-    platform: str = Field(default="", description="Platform the event was produced on")
+    platforms: list[str] = Field(default_factory=list, description="Keys of the platforms the event was produced on")
     status: EventStatus = Field(default=EventStatus.RAW, description="Life cycle state of the event")
     experiment_result: ExperimentResult | None = Field(default=None, description="How the activity itself turned out")
     event_date: datetime | None = Field(default=None, description="UTC moment the activity itself happened")

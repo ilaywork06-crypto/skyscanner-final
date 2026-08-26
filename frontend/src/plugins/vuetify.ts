@@ -64,6 +64,7 @@ const darkTheme: ThemeDefinition = {
     'chip-industry-violet': '#7B68EE',
     'chip-industry-rose': '#ED7A9B',
     'chip-industry-coral': '#FF7F50',
+    'chip-industry-green': '#0BDA51',
     'chip-platform': '#1F75FE',
     'status-positive': '#0BDA51',
     'status-negative': '#FF6347',
@@ -108,11 +109,18 @@ const lightTheme: ThemeDefinition = {
     'table-hover': '#E5EDFF',
     'table-foreground': '#10193A',
     'table-header-foreground': '#33406B',
-    'chip-industry-amber': '#FF7F50',
-    'chip-industry-blue': '#0087EB',
-    'chip-industry-violet': '#7B68EE',
-    'chip-industry-rose': '#ED7A9B',
-    'chip-industry-coral': '#FF6347',
+    /*
+     * A chip of the light theme is painted solid and lettered in white, so every industry colour here is the
+     * darkest reading of its own hue rather than the bright one the dark theme shows on a dark ground. They
+     * used to be shifted a place along instead - amber painted coral, coral painted red - which is what made
+     * a picked colour come out as the one beside it.
+     */
+    'chip-industry-amber': '#B07D1A',
+    'chip-industry-blue': '#0071C4',
+    'chip-industry-violet': '#6552D6',
+    'chip-industry-rose': '#C75478',
+    'chip-industry-coral': '#D95F35',
+    'chip-industry-green': '#0F9D4A',
     'chip-platform': '#1F75FE',
     'status-positive': '#0BDA51',
     'status-negative': '#FF6347',

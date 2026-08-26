@@ -152,22 +152,45 @@
               density="compact"
               @update:model-value="emit('toggle-column', column.colId)"
             />
+            <!--
+              A column nobody declared is one the backend read off the stored events: a key that reached the
+              documents without a declaration still becomes a column, so that a value written by a script is
+              not simply invisible. Saying where it came from is what stops a reader wondering which
+              colleague invented a column they have never seen a form ask for.
+            -->
+            <span
+              v-if="column.discovered"
+              class="toolbar__column-origin"
+            >
+              found in the stored events, never declared
+            </span>
           </v-list-item>
         </v-list>
       </v-menu>
 
+      <!--
+        Which saved view the table is showing used to be nowhere on screen: the pill said Templates whether a
+        template was loaded or not, so a user who came back to a filtered table had no way of telling a saved
+        view from one somebody had left half arranged. The pill names the view it is showing instead.
+      -->
       <v-menu location="bottom start">
         <template #activator="{ props: activator }">
           <v-btn
             v-bind="activator"
             class="toolbar__pill"
+            :class="{ 'toolbar__pill--active': activeTemplate !== null }"
             variant="text"
           >
             <v-icon
               size="small"
-              icon="mdi-bookmark-outline"
+              :icon="activeTemplate === null ? 'mdi-bookmark-outline' : 'mdi-bookmark'"
             />
-            <span class="toolbar__pill-label">Templates</span>
+            <span class="toolbar__pill-label">View:</span>
+            <span class="toolbar__pill-value toolbar__pill-value--template">{{ activeTemplateLabel }}</span>
+            <v-icon
+              size="small"
+              icon="mdi-menu-down"
+            />
           </v-btn>
         </template>
         <v-list
@@ -179,9 +202,20 @@
             :key="template.id"
             :title="template.name"
             :subtitle="template.shared ? 'Shared' : 'Private'"
+            :active="activeTemplate?.id === template.id"
             @click="emit('apply-template', template)"
           />
           <v-divider v-if="templates.length > 0" />
+          <!--
+            The way back to the table as the system generates it: every column shown as it was declared, no
+            filters, no ordering of anybody's choosing. It is the one view that is always there to return to.
+          -->
+          <v-list-item
+            :title="DEFAULT_VIEW_LABEL"
+            prepend-icon="mdi-backup-restore"
+            :active="activeTemplate === null"
+            @click="emit('restore-view')"
+          />
           <v-list-item
             title="Save current view"
             prepend-icon="mdi-content-save-outline"
@@ -291,6 +325,8 @@ interface Props {
   columns: GeneratedColumn[]
   visibleColumns: string[]
   templates: TableTemplate[]
+  /** The saved view the table is currently showing, or nothing while it is on the generated one. */
+  activeTemplate?: TableTemplate | null
   selectedCount: number
   fullscreen: boolean
   archiving?: boolean
@@ -306,6 +342,7 @@ interface Emits {
   (event: 'update:parseState', value: ParseState): void
   (event: 'update:sort', value: SortSpecification): void
   (event: 'toggle-column', colId: string): void
+  (event: 'restore-view'): void
   (event: 'apply-template', template: TableTemplate): void
   (event: 'save-template'): void
   (event: 'export', choice: ExportChoice): void
@@ -329,6 +366,9 @@ const PARSE_LABELS: Record<ParseState, string> = {
 
 const NON_TOGGLEABLE: string[] = ['expander', 'actions']
 
+/** What the table is called while no saved view is loaded, which is also the way back to it. */
+const DEFAULT_VIEW_LABEL = 'Default view'
+
 /** The column the inventory falls back to when the ordering names one the current table does not carry. */
 const DEFAULT_SORT_LABEL = 'Created at'
 
@@ -348,7 +388,7 @@ const SORT_LABEL_MIN_CHARACTERS = 8
  */
 const SORT_LABEL_MAX_CHARACTERS = 14
 
-const props = withDefaults(defineProps<Props>(), { archiving: false })
+const props = withDefaults(defineProps<Props>(), { archiving: false, activeTemplate: null })
 const emit = defineEmits<Emits>()
 
 /*
@@ -359,6 +399,8 @@ const showParsed = computed<boolean>(() => props.parseState !== 'not_parsed')
 const showNotParsed = computed<boolean>(() => props.parseState !== 'parsed')
 
 const parseStateLabel = computed<string>(() => PARSE_LABELS[props.parseState])
+
+const activeTemplateLabel = computed<string>(() => props.activeTemplate?.name ?? DEFAULT_VIEW_LABEL)
 
 const sortableColumns = computed<GeneratedColumn[]>(() => props.columns.filter((column) => column.sortable))
 
@@ -579,6 +621,31 @@ const toggleDirection = () => {
 
 .toolbar__menu {
   min-inline-size: 12rem;
+}
+
+/* The origin of a discovered column is read second, so it is set smaller and quieter than its name. */
+/*
+ * A view can be saved under a name of any length, and one long name would otherwise widen the pill until the
+ * row of controls no longer fits on one line, so the name is cut short inside the pill.
+ */
+.toolbar__pill-value--template {
+  max-inline-size: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A table showing a saved view says so with the pill itself rather than only with the name inside it. */
+.toolbar__pill--active.v-btn {
+  color: rgb(var(--v-theme-primary));
+}
+
+.toolbar__column-origin {
+  display: block;
+  padding-inline-start: 2.25rem;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  opacity: 0.6;
 }
 
 .toolbar__menu--tall {

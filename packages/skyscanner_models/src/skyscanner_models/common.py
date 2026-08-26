@@ -49,6 +49,21 @@ class Artifact(BaseModel):
     updated_at: datetime | None = Field(default=None, description="UTC moment the file record last changed")
 
 
+class Coordinate(BaseModel):
+    """
+    A single point on the globe, held as the three numbers a map picker hands back.
+
+    The altitude is optional because a point picked off a map has no height to report, while one that came
+    from a flight recorder does; nothing else about the value changes between the two.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    lon: float = Field(ge=-180, le=180, description="Longitude of the point in decimal degrees")
+    lat: float = Field(ge=-90, le=90, description="Latitude of the point in decimal degrees")
+    alt: float | None = Field(default=None, description="Altitude of the point in metres above sea level")
+
+
 class MetadataAttribute(BaseModel):
     """
     A dynamic key and value pair holding the value of a user defined field on an event or an entity.

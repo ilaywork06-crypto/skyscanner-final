@@ -37,6 +37,7 @@ class TemplateRepository(BaseRepository[TemplateDocument]):
         """
         Create the index that keeps a template name unique per owner and scope.
         """
+        await super().ensure_indexes()
         await self.create_indexes(
             [
                 IndexModel(

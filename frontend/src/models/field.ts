@@ -44,6 +44,8 @@ interface FieldDefinition {
   scope: FieldScope
   industry: string | null
   entity_type: string | null
+  /** Whether the field describes the object itself or the additional data block underneath it. */
+  additional: boolean
   metadata: FieldMetadata
   constraints: FieldConstraint[]
   depends_on: FieldDependency[]
@@ -52,6 +54,8 @@ interface FieldDefinition {
   editable: boolean
   visible: boolean
   order: number
+  /** Whether nobody declared the field and it was read off the stored documents instead. */
+  discovered: boolean
   created_at: string
   updated_at: string | null
   created_by: string | null

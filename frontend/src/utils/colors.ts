@@ -11,7 +11,18 @@ const INDUSTRY_PALETTE: string[] = [
   'chip-industry-violet',
   'chip-industry-rose',
   'chip-industry-coral',
+  'chip-industry-green',
 ]
+
+/** What each industry colour is called where one is picked, in the order the picker offers them. */
+const INDUSTRY_COLOUR_NAMES: Record<string, string> = {
+  'chip-industry-amber': 'Amber',
+  'chip-industry-blue': 'Blue',
+  'chip-industry-violet': 'Violet',
+  'chip-industry-rose': 'Rose',
+  'chip-industry-coral': 'Coral',
+  'chip-industry-green': 'Green',
+}
 
 const EVENT_STATUS_TOKENS: Record<EventStatus, string> = {
   draft: 'status-neutral',
@@ -25,6 +36,8 @@ const EVENT_STATUS_TOKENS: Record<EventStatus, string> = {
 const ENTITY_STATUS_TOKENS: Record<EntityStatus, string> = {
   raw: 'status-pending',
   parsing: 'status-neutral',
+  /* Some of the data came through and some did not, which is the same half success the events call partial. */
+  partially_parsed: 'status-partial',
   parsed: 'status-positive',
   failed: 'status-negative',
 }
@@ -96,4 +109,12 @@ const hashText = (value: string): number => {
   return hash
 }
 
-export { INDUSTRY_PALETTE, experimentResultToken, hashText, paletteToken, statusToken, industryToken }
+export {
+  INDUSTRY_COLOUR_NAMES,
+  INDUSTRY_PALETTE,
+  experimentResultToken,
+  hashText,
+  paletteToken,
+  statusToken,
+  industryToken,
+}

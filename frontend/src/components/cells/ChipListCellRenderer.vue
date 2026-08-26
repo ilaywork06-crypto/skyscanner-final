@@ -5,7 +5,6 @@
         v-if="isPlain"
         class="chip-list__plain"
         :class="{ 'chip-list__plain--expandable': isExpandable }"
-        :title="joined"
         @click="openViewer"
       >
         <HighlightedText
@@ -24,7 +23,7 @@
           <SkyChip
             v-if="isMatch(value)"
             :label="value"
-            :token="LIST_TOKEN"
+            :token="token"
           >
             <HighlightedText
               :text="value"
@@ -34,7 +33,7 @@
           <SkyChip
             v-else
             :label="value"
-            :token="LIST_TOKEN"
+            :token="token"
           />
         </template>
       </template>
@@ -78,10 +77,15 @@ import { EMPTY_PLACEHOLDER, SkyChip, SkyValueViewer as ValueViewerDialog } from 
 import type { GridRow } from '@/models/grid'
 
 interface Props {
-  params: ICellRendererParams<GridRow> & { variant?: string }
+  params: ICellRendererParams<GridRow> & { variant?: string; palette?: string }
 }
 
 const LIST_TOKEN = 'chip-industry-violet'
+
+/** What a column asks for when its values belong to one named palette rather than to the default one. */
+const PALETTE_TOKENS: Record<string, string> = {
+  platform: 'chip-platform',
+}
 
 /** Past this much text the cell is showing a fragment of the list however the list is laid out. */
 const TEXT_LIMIT = 48
@@ -103,6 +107,13 @@ const props = defineProps<Props>()
 const dialog = ref<boolean>(false)
 
 const isPlain = computed<boolean>(() => props.params.variant === 'plain')
+
+/* The platforms of an event are painted in the platform colour, exactly as the single chip used to be. */
+const token = computed<string>(() => {
+  const palette = props.params.palette
+
+  return typeof palette === 'string' ? (PALETTE_TOKENS[palette] ?? LIST_TOKEN) : LIST_TOKEN
+})
 
 const values = computed<string[]>(() => {
   const value = props.params.value

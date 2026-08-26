@@ -53,12 +53,13 @@ interface GeneratedColumn {
   cellRenderer: string | null
   cellRendererParams: Record<string, JsonValue>
   cellDataType: string | boolean
-  tooltipField: string | null
   headerClass: string | null
   cellClass: string | null
   autoHeight: boolean
   fieldType: string
   dynamic: boolean
+  /** Whether nobody declared this column and it was read off the stored documents instead. */
+  discovered: boolean
   industry: string | null
 }
 

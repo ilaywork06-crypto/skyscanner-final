@@ -43,6 +43,7 @@ class SubscriptionRepository(BaseRepository[SubscriptionDocument]):
         account, so the second person asking to be told about an industry is refused because the first
         person already asked - even though the mail would go somewhere else entirely.
         """
+        await super().ensure_indexes()
         await self.create_indexes(
             [
                 IndexModel(

@@ -115,6 +115,9 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_API_BASE_URL: /api
+        # Point these at the tile server of the deployment to turn the map of the coordinate field on.
+        VITE_MAP_TILE_URL: ${VITE_MAP_TILE_URL:-}
+        VITE_MAP_ATTRIBUTION: ${VITE_MAP_ATTRIBUTION:-}
     restart: unless-stopped
     ports:
       - "8080:80"

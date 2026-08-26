@@ -48,43 +48,43 @@
       </div>
 
       <!--
-        Origin is a vocabulary the industry declares. While it has declared none the field stays open text,
+        Module is a vocabulary the industry declares. While it has declared none the field stays open text,
         so a system nobody configured yet is not blocked from recording where its data came from.
       -->
       <div class="entity-form__field">
         <label
           class="entity-form__label"
-          :for="`${idPrefix}-origin`"
+          :for="`${idPrefix}-module`"
         >
-          Origin
-          <SkyInfoIcon label="What Origin means">
+          Module
+          <SkyInfoIcon label="What Module means">
             {{
-              origins.length > 0
-                ? 'The system or sensor the data came from. The list is declared for this industry.'
-                : 'The system or sensor the data came from. This industry has declared no list yet, so any text is accepted.'
+              modules.length > 0
+                ? 'The system or sensor module the data came from. The list is declared for this industry.'
+                : 'The system or sensor module the data came from. This industry has declared no list yet, so any text is accepted.'
             }}
           </SkyInfoIcon>
         </label>
         <v-select
-          v-if="origins.length > 0"
-          :id="`${idPrefix}-origin`"
+          v-if="modules.length > 0"
+          :id="`${idPrefix}-module`"
           class="entity-form__control"
-          :model-value="modelValue.origin"
-          :items="origins"
+          :model-value="modelValue.module"
+          :items="modules"
           density="comfortable"
           :menu-props="MENU_PROPS"
-          placeholder="Pick an origin"
+          placeholder="Pick a module"
           clearable
-          @update:model-value="patch({ origin: $event })"
+          @update:model-value="patch({ module: $event })"
         />
         <v-text-field
           v-else
-          :id="`${idPrefix}-origin`"
+          :id="`${idPrefix}-module`"
           class="entity-form__control"
-          :model-value="modelValue.origin ?? ''"
+          :model-value="modelValue.module ?? ''"
           density="comfortable"
-          placeholder="Enter origin"
-          @update:model-value="patch({ origin: $event.length > 0 ? $event : null })"
+          placeholder="Enter module"
+          @update:model-value="patch({ module: $event.length > 0 ? $event : null })"
         />
       </div>
 
@@ -108,7 +108,6 @@
           class="entity-form__control"
           :model-value="modelValue.status"
           :items="statusItems"
-          :disabled="statusLocked"
           density="comfortable"
           :menu-props="MENU_PROPS"
           @update:model-value="patch({ status: $event })"
@@ -157,10 +156,12 @@
 
     <MetadataFieldsPanel
       :model-value="modelValue.values"
+      :types="modelValue.valueTypes"
       :fields="fields"
       :context="context"
       title="Metadata fields"
       @update:model-value="patch({ values: $event })"
+      @update:types="patch({ valueTypes: $event })"
     />
 
     <div class="entity-form__files">
@@ -184,8 +185,8 @@
 </template>
 
 <script lang="ts">
-import type { EntityStatus, JsonValue } from '@/models/common'
-import { SkyDropzone as FileDropzone, SkyInfoIcon, SkyNotesInput } from '@skyscanner/sky-ui'
+import type { EntityStatus, FieldType, JsonValue } from '@/models/common'
+import { SkyDropzone as FileDropzone, SkyInfoIcon, SkyNotesInput, humanizeKey } from '@skyscanner/sky-ui'
 import type { EntityType } from '@/models/entity'
 import type { FieldDefinition } from '@/models/field'
 
@@ -193,11 +194,13 @@ import type { FieldDefinition } from '@/models/field'
 interface EntityFormValue {
   typeKey: string | null
   name: string
-  origin: string | null
+  module: string | null
   codeVersion: string
   status: EntityStatus
   notes: string
   values: Record<string, JsonValue>
+  /** What kind of value every dynamic key holds, which a key invented on the spot carries with it. */
+  valueTypes: Record<string, FieldType>
   rawFiles: File[]
   parsedFiles: File[]
   parsedAdditionalFiles: File[]
@@ -207,7 +210,7 @@ interface Props {
   modelValue: EntityFormValue
   entityTypes: EntityType[]
   fields: FieldDefinition[]
-  origins?: string[]
+  modules?: string[]
   lockType?: boolean
   idPrefix?: string
   /**
@@ -228,12 +231,15 @@ interface Emits {
 
 /** One option of the status selector, in the shape Vuetify reads a disabled option from. */
 interface StatusItem {
-  title: EntityStatus
+  title: string
   value: EntityStatus
   props: { disabled: boolean }
 }
 
-const STATUS_OPTIONS: EntityStatus[] = ['raw', 'parsing', 'parsed', 'failed']
+const STATUS_OPTIONS: EntityStatus[] = ['raw', 'parsing', 'partially_parsed', 'parsed', 'failed']
+
+/* The states that claim the parsing products exist, which is a claim only the attached files can support. */
+const PARSED_STATUSES: EntityStatus[] = ['parsed', 'partially_parsed']
 
 /** What an entity falls back to when the parsed files that made it parsed are taken away again. */
 const UNPARSED_STATUS: EntityStatus = 'raw'
@@ -251,11 +257,12 @@ const MENU_PROPS = { maxWidth: MENU_MAX_WIDTH_PX }
 const emptyEntityForm = (): EntityFormValue => ({
   typeKey: null,
   name: '',
-  origin: null,
+  module: null,
   codeVersion: '',
   status: 'raw',
   notes: '',
   values: {},
+  valueTypes: {},
   rawFiles: [],
   parsedFiles: [],
   parsedAdditionalFiles: [],
@@ -271,7 +278,7 @@ import { computed, watch } from 'vue'
 import MetadataFieldsPanel from '@/components/MetadataFieldsPanel.vue'
 
 const props = withDefaults(defineProps<Props>(), {
-  origins: () => [],
+  modules: () => [],
   lockType: false,
   idPrefix: 'entity',
   storedParsedCount: 0,
@@ -284,26 +291,24 @@ const parsedFileCount = computed<number>(() => props.storedParsedCount + props.m
 
 const isParsed = computed<boolean>(() => parsedFileCount.value > 0)
 
-const statusLocked = computed<boolean>(() => isParsed.value)
-
 const statusItems = computed<StatusItem[]>(() =>
   STATUS_OPTIONS.map((status) => ({
-    title: status,
+    title: humanizeKey(status),
     value: status,
-    props: { disabled: status === 'parsed' && !isParsed.value },
+    props: { disabled: PARSED_STATUSES.includes(status) && !isParsed.value },
   })),
 )
 
 const statusHint = computed<string>(() =>
   isParsed.value
-    ? 'This entity carries parsed files, so it is parsed. Uploading parsed files moves the entity to parsed on its own.'
+    ? 'This entity carries parsed files. Say partially parsed when only some of the data came through.'
     : 'Parsed cannot be chosen while no parsed files are attached. Uploading parsed files moves the entity to parsed on its own.',
 )
 
 const statusExplanation = computed<string>(() =>
   isParsed.value
-    ? `The status follows the files: ${parsedFileCount.value} parsed file(s) are attached, which is what parsed means, so the status is set for you.`
-    : 'The status follows the files. Raw is data as it arrived, parsing is a run in progress, failed is a run that did not produce anything, and parsed is only reachable by attaching the parsed files themselves.',
+    ? `The status follows the files: ${parsedFileCount.value} parsed file(s) are attached, so the entity is parsed - or partially parsed, when only some of what was recorded came through.`
+    : 'The status follows the files. Raw is data as it arrived, parsing is a run in progress, failed is a run that did not produce anything, and the parsed states are only reachable by attaching the parsed files themselves.',
 )
 
 /**
@@ -321,13 +326,13 @@ const patch = (changes: Partial<EntityFormValue>) => {
 watch(
   () => [isParsed.value, props.modelValue.status] as const,
   ([parsed, status]) => {
-    if (parsed && status !== 'parsed') {
+    if (parsed && !PARSED_STATUSES.includes(status)) {
       patch({ status: 'parsed' })
 
       return
     }
 
-    if (!parsed && status === 'parsed') {
+    if (!parsed && PARSED_STATUSES.includes(status)) {
       patch({ status: UNPARSED_STATUS })
     }
   },

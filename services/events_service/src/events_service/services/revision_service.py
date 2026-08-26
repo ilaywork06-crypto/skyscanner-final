@@ -28,7 +28,7 @@ TRACKED_EVENT_KEYS: tuple[str, ...] = (
     "name",
     "reference_id",
     "industry",
-    "platform",
+    "platforms",
     "status",
     "experiment_result",
     "event_date",
@@ -39,7 +39,7 @@ TRACKED_EVENT_KEYS: tuple[str, ...] = (
 
 TRACKED_ENTITY_KEYS: tuple[str, ...] = (
     "name",
-    "origin",
+    "module",
     "code_version",
     "status",
     "notes",

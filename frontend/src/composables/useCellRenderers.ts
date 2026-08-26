@@ -7,6 +7,7 @@ import type { CellRendererRegistry } from '@skyscanner/ag-grid-ts'
 import BooleanCellRenderer from '@/components/cells/BooleanCellRenderer.vue'
 import ChipCellRenderer from '@/components/cells/ChipCellRenderer.vue'
 import ChipListCellRenderer from '@/components/cells/ChipListCellRenderer.vue'
+import CoordinateCellRenderer from '@/components/cells/CoordinateCellRenderer.vue'
 import DateCellRenderer from '@/components/cells/DateCellRenderer.vue'
 import EventLinkCellRenderer from '@/components/cells/EventLinkCellRenderer.vue'
 import ExpandCellRenderer from '@/components/cells/ExpandCellRenderer.vue'
@@ -19,6 +20,7 @@ const registry: CellRendererRegistry = {
   BooleanCellRenderer,
   ChipCellRenderer,
   ChipListCellRenderer,
+  CoordinateCellRenderer,
   DateCellRenderer,
   EventLinkCellRenderer,
   ExpandCellRenderer,

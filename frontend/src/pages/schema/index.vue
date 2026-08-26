@@ -19,11 +19,11 @@
 
       <div class="schema__filters">
         <v-select
-          v-model="scope"
-          :items="SCOPE_ITEMS"
+          v-model="section"
+          :items="SECTION_ITEMS"
           item-title="title"
           item-value="value"
-          label="Scope"
+          label="Section"
         />
         <v-select
           v-model="industry"
@@ -42,6 +42,7 @@
             <th>Type</th>
             <th>Industry</th>
             <th>Entity type</th>
+            <th>Section</th>
             <th>Required</th>
             <th>Visible</th>
             <th />
@@ -57,6 +58,7 @@
             <td>{{ field.type }}{{ field.array ? '[]' : '' }}</td>
             <td>{{ field.industry ?? 'shared' }}</td>
             <td>{{ field.entity_type ?? '—' }}</td>
+            <td>{{ field.additional ? 'additional data' : 'entity fields' }}</td>
             <td>{{ field.required ? 'yes' : 'no' }}</td>
             <td>{{ field.visible ? 'yes' : 'no' }}</td>
             <td class="schema__row-actions">
@@ -71,7 +73,7 @@
           </tr>
           <tr v-if="fields.length === 0">
             <td
-              colspan="8"
+              colspan="9"
               class="schema__empty"
             >
               No fields were declared for this scope yet.
@@ -102,19 +104,23 @@
             :items="TYPE_OPTIONS"
             label="Type"
           />
+          <!--
+            Which half of the entity form the field belongs to. The additional data used to be a free for all
+            of keys people invented as they went; declaring one here is what turns a key two people would
+            have spelled differently into the same field on both of their forms.
+          -->
           <v-select
-            v-model="draftScope"
-            :items="SCOPE_ITEMS"
+            v-model="draftSection"
+            :items="SECTION_ITEMS"
             item-title="title"
             item-value="value"
-            label="Scope"
+            label="Section"
           />
           <!--
             A field of an entity belongs to one kind of entity, so the type is picked from the ones that
             were declared rather than typed from memory. Leaving it empty gives every entity the field.
           -->
           <v-select
-            v-if="draftScope === 'entity'"
             v-model="draftEntityType"
             :items="entityTypeItems"
             item-title="title"
@@ -135,8 +141,8 @@
             item-title="title"
             item-value="value"
             label="Industry"
-            :hint="draftScope === 'entity' ? 'The field applies to every entity of this industry.' : undefined"
-            :persistent-hint="draftScope === 'entity'"
+            hint="The field applies to every entity of this industry."
+            persistent-hint
           />
           <p
             v-else
@@ -144,12 +150,19 @@
           >
             {{ derivedIndustryNote }}
           </p>
+          <!--
+            The values an enum offers are collected one at a time, and a box that only turns what is typed
+            into a chip on Enter has to say so - otherwise the last value typed is quietly dropped.
+          -->
           <v-combobox
             v-if="draftType === 'enum'"
             v-model="draftOptions"
             label="Allowed values"
+            :hint="ENTER_TO_ADD_HINT"
+            persistent-hint
             multiple
             chips
+            closable-chips
           />
           <v-textarea
             v-model="draftDescription"
@@ -184,7 +197,7 @@
               {{
                 dependencyCandidates.length === 0
                   ? 'No other field this one could wait for is declared yet.'
-                  : dependenciesHint
+                  : DEPENDENCIES_HINT
               }}
             </p>
             <div
@@ -213,8 +226,11 @@
                 v-model="dependency.values"
                 label="Values"
                 density="compact"
+                :hint="ENTER_TO_ADD_HINT"
+                persistent-hint
                 multiple
                 chips
+                closable-chips
               />
               <v-btn
                 icon="mdi-close"
@@ -258,7 +274,7 @@
 </template>
 
 <script lang="ts">
-import type { FieldScope, FieldType } from '@/models/common'
+import type { FieldType } from '@/models/common'
 import { slugify } from '@skyscanner/sky-ui'
 import type { EntityType } from '@/models/entity'
 import type { DependencyOperator, FieldDefinition, FieldDependency } from '@/models/field'
@@ -266,6 +282,14 @@ import type { DependencyOperator, FieldDefinition, FieldDependency } from '@/mod
 interface SelectItem {
   title: string
   value: string | null
+}
+
+/** Which half of the entity form a declaration belongs to. */
+type FieldSection = 'own' | 'additional'
+
+interface SectionItem {
+  title: string
+  value: FieldSection
 }
 
 interface OperatorItem {
@@ -280,9 +304,6 @@ const DEPENDENCY_OPERATORS: OperatorItem[] = [
   { title: 'is not one of', value: 'not_equals' },
 ]
 
-/** What a candidate of the surrounding event is called, so that it is never taken for a field of the form. */
-const EVENT_FIELD_SUFFIX = 'of the event'
-
 /** How an industry that belongs to nobody in particular reads in a selector. */
 const SHARED_LABEL = 'shared'
 </script>
@@ -295,10 +316,15 @@ import { useSnackbar } from '@/composables/useSnackbar'
 import { useIndustries } from '@/composables/useIndustries'
 import { client } from '@/requests/client'
 import { listEntityTypes, listFields } from '@/requests/schema'
+import { ENTER_TO_ADD_HINT } from '@/utils/hints'
 
-const SCOPE_ITEMS: SelectItem[] = [
-  { title: 'Events', value: 'event' },
-  { title: 'Entities', value: 'entity' },
+/*
+ * The two halves of an entity form. Both are stored in the same place and both become columns of the entity
+ * table, so the only thing the section decides is where the field is asked for.
+ */
+const SECTION_ITEMS: SectionItem[] = [
+  { title: 'Entity fields', value: 'own' },
+  { title: 'Additional data', value: 'additional' },
 ]
 
 const TYPE_OPTIONS: FieldType[] = [
@@ -311,12 +337,13 @@ const TYPE_OPTIONS: FieldType[] = [
   'datetime',
   'enum',
   'json',
+  'coordinate',
 ]
 
 const { industries, load } = useIndustries()
 const { notify, reportError } = useSnackbar()
 
-const scope = ref<FieldScope>('event')
+const section = ref<FieldSection>('own')
 const industry = ref<string | null>(null)
 const fields = ref<FieldDefinition[]>([])
 const dialog = ref<boolean>(false)
@@ -325,7 +352,7 @@ const saving = ref<boolean>(false)
 const draftName = ref<string>('')
 const draftKey = ref<string>('')
 const draftType = ref<FieldType>('string')
-const draftScope = ref<FieldScope>('event')
+const draftSection = ref<FieldSection>('own')
 const draftIndustry = ref<string | null>(null)
 const draftEntityType = ref<string | null>(null)
 const draftOptions = ref<string[]>([])
@@ -335,12 +362,18 @@ const entityTypes = ref<EntityType[]>([])
 const draftRequired = ref<boolean>(false)
 const draftVisible = ref<boolean>(true)
 const ownScopeFields = ref<FieldDefinition[]>([])
-const eventScopeFields = ref<FieldDefinition[]>([])
 
-const industryItems = computed<SelectItem[]>(() => [
-  { title: 'Shared', value: null },
-  ...industries.value.map((candidate) => ({ title: candidate.name, value: candidate.key })),
-])
+const industryItems = computed<SelectItem[]>(() => {
+  const offered =
+    typeIndustries.value.length > 0
+      ? industries.value.filter((candidate) => typeIndustries.value.includes(candidate.key))
+      : industries.value
+
+  return [
+    { title: 'Shared', value: null },
+    ...offered.map((candidate) => ({ title: candidate.name, value: candidate.key })),
+  ]
+})
 
 /**
  * Name one industry the way the user knows it, falling back to the key of an industry nobody registered.
@@ -353,11 +386,17 @@ const industryLabel = (key: string | null): string => {
   return industries.value.find((candidate) => candidate.key === key)?.name ?? key
 }
 
-/* Every declared entity type is offered, each one saying which industry it drags along with it. */
+/**
+ * Name the industries a declaration belongs to, where belonging to none means belonging to all of them.
+ */
+const industriesLabel = (keys: string[]): string =>
+  keys.length === 0 ? SHARED_LABEL : keys.map(industryLabel).join(', ')
+
+/* Every declared entity type is offered, each one saying which industries it drags along with it. */
 const entityTypeItems = computed<SelectItem[]>(() => [
   { title: 'Every entity type', value: null },
   ...entityTypes.value.map((candidate) => ({
-    title: `${candidate.name} (${industryLabel(candidate.industry)})`,
+    title: `${candidate.name} (${industriesLabel(candidate.industries)})`,
     value: candidate.key,
   })),
 ])
@@ -366,43 +405,42 @@ const chosenEntityType = computed<EntityType | null>(
   () => entityTypes.value.find((candidate) => candidate.key === draftEntityType.value) ?? null,
 )
 
-/* Only a draft that names no entity type leaves the industry open, because nothing else answers it. */
-const industryIsAsked = computed<boolean>(() => draftScope.value === 'event' || chosenEntityType.value === null)
+/* The industries the chosen type belongs to, which is what the field may be declared for at all. */
+const typeIndustries = computed<string[]>(() => chosenEntityType.value?.industries ?? [])
+
+/*
+ * A field belongs to one industry, so the question is only skipped where the answer is already settled: a
+ * type shared by everybody leaves the field shared, and a type of a single industry hands that one over. A
+ * type that serves several is the one case where the answer still has to be picked out of them.
+ */
+const industryIsAsked = computed<boolean>(
+  () => chosenEntityType.value === null || typeIndustries.value.length > 1,
+)
 
 const resolvedIndustry = computed<string | null>(() =>
-  industryIsAsked.value ? draftIndustry.value : (chosenEntityType.value?.industry ?? null),
+  industryIsAsked.value ? draftIndustry.value : (typeIndustries.value[0] ?? null),
 )
 
 const derivedIndustryNote = computed<string>(() => {
   const type = chosenEntityType.value?.name ?? ''
 
-  return chosenEntityType.value?.industry === null
+  return typeIndustries.value.length === 0
     ? `The entity type ${type} is shared, so the field is declared for every industry.`
     : `The entity type ${type} belongs to ${industryLabel(resolvedIndustry.value)}, so the field is declared there.`
 })
 
 /*
- * A condition may point at a field of the same form, and a field of an entity may also point at a field of
- * the event that entity hangs under - that is the only other form whose values are known while it is filled
- * in. A key the entity declares itself always wins, so an event field it shadows is not offered twice.
+ * A condition may point at any other field of the same entity form, whichever of its two halves that field
+ * was declared in: both halves are filled in together and both end up in the same set of values.
  */
-const dependencyCandidates = computed<SelectItem[]>(() => {
-  const own = ownScopeFields.value.filter((candidate) => candidate.key !== draftKey.value)
-  const ownKeys = new Set(own.map((candidate) => candidate.key))
-
-  return [
-    ...own.map((candidate) => ({ title: candidate.name, value: candidate.key })),
-    ...eventScopeFields.value
-      .filter((candidate) => !ownKeys.has(candidate.key))
-      .map((candidate) => ({ title: `${candidate.name} (${EVENT_FIELD_SUFFIX})`, value: candidate.key })),
-  ]
-})
-
-const dependenciesHint = computed<string>(() =>
-  draftScope.value === 'entity'
-    ? 'The field always applies. Add a condition to make it appear only for some entities, or only once the event says so.'
-    : 'The field always applies. Add a condition to make it appear only in some cases.',
+const dependencyCandidates = computed<SelectItem[]>(() =>
+  ownScopeFields.value
+    .filter((candidate) => candidate.key !== draftKey.value)
+    .map((candidate) => ({ title: candidate.name, value: candidate.key })),
 )
+
+const DEPENDENCIES_HINT =
+  'The field always applies. Add a condition to make it appear only for some entities.'
 
 const addDependency = () => {
   const first = dependencyCandidates.value[0]?.value
@@ -422,7 +460,7 @@ const reload = async (): Promise<void> => {
     /* The listing follows the filters, while the entity types are read whole: the dialog reads the
        industry off the type the user picks, so it may not only offer the types of one industry. */
     const [declared, types] = await Promise.all([
-      listFields({ scope: scope.value, industry: industry.value }),
+      listFields({ scope: 'entity', industry: industry.value, additional: section.value === 'additional' }),
       listEntityTypes(),
     ])
     fields.value = declared
@@ -442,23 +480,16 @@ const reload = async (): Promise<void> => {
 const loadCandidates = async (): Promise<void> => {
   const owner = resolvedIndustry.value
   try {
-    if (draftScope.value === 'event') {
-      ownScopeFields.value = await listFields({ scope: 'event', industry: owner })
-      eventScopeFields.value = []
-
-      return
-    }
-
-    const [entityFields, eventFields] = await Promise.all([
-      listFields({ scope: 'entity', industry: owner, entityType: draftEntityType.value }),
-      listFields({ scope: 'event', industry: owner }),
-    ])
+    const entityFields = await listFields({
+      scope: 'entity',
+      industry: owner,
+      entityType: draftEntityType.value,
+    })
     /* A field declared for every entity type shares its form with the fields of no single type only. */
     ownScopeFields.value =
       draftEntityType.value === null
         ? entityFields.filter((candidate) => candidate.entity_type === null)
         : entityFields
-    eventScopeFields.value = eventFields
   } catch (error) {
     reportError(error)
   }
@@ -491,9 +522,10 @@ const onCreate = async (): Promise<void> => {
       array: false,
       default: null,
       required: draftRequired.value,
-      scope: draftScope.value,
+      scope: 'entity',
       industry: resolvedIndustry.value,
-      entity_type: draftScope.value === 'entity' ? draftEntityType.value : null,
+      entity_type: draftEntityType.value,
+      additional: draftSection.value === 'additional',
       metadata: {
         allowed_file_types: [],
         options: draftOptions.value,
@@ -541,8 +573,8 @@ onMounted(async () => {
   await reload()
 })
 
-watch([scope, industry], reload)
-watch([dialog, draftScope, draftIndustry, draftEntityType], refreshCandidates)
+watch([section, industry], reload)
+watch([dialog, draftIndustry, draftEntityType], refreshCandidates)
 </script>
 
 <style scoped>

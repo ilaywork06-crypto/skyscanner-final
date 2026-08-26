@@ -20,10 +20,11 @@ from skyscanner_models.query import SearchQuery
 from skyscanner_models.subscription import SubscriptionTrigger
 
 from events_service.constants import EVENT_ID_COUNTER
-from events_service.documents import EventDocument, OutboxDocument
+from events_service.documents import EventDocument, OutboxDocument, TypeDocument
 from events_service.repositories.counter_repository import CounterRepository
 from events_service.repositories.event_repository import EventRepository
 from events_service.repositories.outbox_repository import OutboxRepository
+from events_service.services.artifact_rules import require_unique_artifacts
 from events_service.services.entity_service import EntityService
 from events_service.services.field_service import FieldService
 from events_service.services.revision_service import RevisionService, event_update_changes
@@ -34,7 +35,7 @@ from events_service.services.type_service import TypeService
 
 class EventService:
     """
-    Owner of the inventory, turning the three steps of the create wizard into one stored document.
+    Owner of the inventory, turning the two steps of the create wizard into one stored document.
     """
 
     def __init__(
@@ -53,8 +54,8 @@ class EventService:
         :param repository: Persistence of the events.
         :param counter_repository: Source of the running event numbers.
         :param outbox_repository: Persistence of the pending notifications.
-        :param type_service: Resolver of the declared event types.
-        :param field_service: Owner of the dynamic schema of the events.
+        :param type_service: Resolver of the declared event types and platforms.
+        :param field_service: Owner of the dynamic schema, which the entities of an event are shaped by.
         :param entity_service: Owner of the entities nested inside an event.
         :param revision_service: Owner of the edit history.
         """
@@ -112,18 +113,22 @@ class EventService:
         :param user: Identity the event is attributed to.
         :return: The stored event.
         :raises ValidationError: When no event type was chosen or a declared rule is broken.
-        :raises NotFoundError: When a chosen event type or entity type is not declared.
+        :raises NotFoundError: When a chosen event type, platform or entity type is not declared.
         """
         if not request.event_type_keys:
             raise ValidationError(message="At least one event type has to be chosen")
 
         await self._require_free_reference(reference_id=request.reference_id.strip())
+        require_unique_artifacts(artifacts=request.additional_files, label="the event")
 
         types = await self._type_service.resolve_event_types(keys=request.event_type_keys)
+        await self._type_service.resolve_platforms(keys=request.platforms, industry=request.industry)
+        # The event fields the chosen types ask for are the form, so those are the ones that may be required.
         attributes, flattened = await self._field_service.build_values(
             scope=FieldScope.EVENT,
             supplied=request.metadata,
             industry=request.industry,
+            asked=_asked_keys(types),
         )
         event_number = await self._counter_repository.next_value(name=EVENT_ID_COUNTER)
 
@@ -136,7 +141,7 @@ class EventService:
             event_type_names=[declared.name for declared in types],
             event_type_keys=[declared.key for declared in types],
             industry=request.industry,
-            platform=request.platform,
+            platforms=list(request.platforms),
             status=request.status,
             experiment_result=request.experiment_result,
             event_date=ensure_utc(request.event_date),
@@ -188,6 +193,13 @@ class EventService:
             updates["reference_id"] = request.reference_id.strip()
             await self._require_free_reference(reference_id=updates["reference_id"], excluding=event_id)
 
+        if request.platforms is not None:
+            await self._type_service.resolve_platforms(
+                keys=request.platforms,
+                industry=request.industry or document.industry,
+            )
+            updates["platforms"] = list(request.platforms)
+
         if request.event_type_keys is not None:
             types = await self._type_service.resolve_event_types(keys=request.event_type_keys)
             updates["event_type"] = [declared.to_reference().model_dump() for declared in types]
@@ -195,15 +207,27 @@ class EventService:
             updates["event_type_keys"] = [declared.key for declared in types]
 
         if request.metadata is not None:
+            # The types are read back tolerantly: one that was removed since the event was filed under it
+            # only means the form no longer asks what it used to, never that the event refuses to be saved.
+            declared_types = await self._type_service.resolve_known_event_types(
+                keys=request.event_type_keys if request.event_type_keys is not None else document.event_type_keys,
+            )
+            # Whatever the event already holds under a key nobody declared stays readable and editable: the
+            # rule is that no new such key is written, not that an event written before it becomes unsavable.
             attributes, flattened = await self._field_service.build_values(
                 scope=FieldScope.EVENT,
                 supplied=request.metadata,
                 industry=request.industry or document.industry,
+                asked=_asked_keys(declared_types),
+                carried=set(document.data),
             )
             updates["metadata"] = [attribute.model_dump() for attribute in attributes]
             updates["data"] = flattened
 
         if request.additional_files is not None:
+            # The list a caller hands back is the whole list, so an edit that attaches a file the event
+            # already holds is caught here rather than after it has been written.
+            require_unique_artifacts(artifacts=request.additional_files, label="the event")
             updates["additional_files"] = [artifact.model_dump() for artifact in request.additional_files]
 
         if request.status is not None:
@@ -244,14 +268,18 @@ class EventService:
 
         return refreshed.to_response()
 
-    async def delete_event(self, event_id: str) -> None:
+    async def delete_event(self, event_id: str, user: UserContext) -> None:
         """
         Remove an event together with the entities nested inside it.
 
+        The event is marked as removed rather than erased, so it stops answering every read of the inventory
+        while its files, its history and the entities under it stay recoverable.
+
         :param event_id: Identifier of the event that is removed.
+        :param user: Identity the removal is attributed to.
         :raises NotFoundError: When the identifier is unknown.
         """
-        removed = await self._repository.delete(identifier=event_id)
+        removed = await self._repository.delete(identifier=event_id, user=user.username)
         if not removed:
             raise NotFoundError(message="The event does not exist", details={"id": event_id})
 
@@ -310,3 +338,19 @@ class EventService:
                 summary=summary,
             ),
         )
+
+
+# ----- FUNCTIONS ----- #
+
+
+def _asked_keys(types: list[TypeDocument]) -> set[str]:
+    """
+    Collect the declared event fields the chosen types ask for, which is what the create form showed.
+
+    An event may be filed under several types at once, and it is asked for everything any one of them asks
+    for - exactly the way the built in fields of a type are read.
+
+    :param types: Event types the event is filed under.
+    :return: The keys of the declared event fields the event form asks for.
+    """
+    return {key for declared in types for key in declared.custom_fields}

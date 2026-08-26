@@ -3,6 +3,10 @@
     class="industry-tabs"
     aria-label="Industries"
   >
+    <!--
+      All is not an industry, it is the absence of a choice of one, so it leads the row and never takes part
+      in the arrangement: it cannot be dragged and nothing can be dropped in front of it.
+    -->
     <v-btn
       class="industry-tabs__tab"
       :class="{ 'industry-tabs__tab--active': modelValue === null }"
@@ -12,12 +16,23 @@
       All
     </v-btn>
     <v-btn
-      v-for="industry in industries"
+      v-for="(industry, index) in orderedIndustries"
       :key="industry.key"
       class="industry-tabs__tab"
-      :class="{ 'industry-tabs__tab--active': modelValue === industry.key }"
+      :class="{
+        'industry-tabs__tab--active': modelValue === industry.key,
+        'industry-tabs__tab--dragged': draggedKey === industry.key,
+        'industry-tabs__tab--target': dropIndex === index && draggedKey !== industry.key,
+      }"
       variant="text"
+      draggable="true"
+      :title="`${industry.name} — drag to move this tab`"
       @click="emit('update:modelValue', industry.key)"
+      @dragstart="onDragStart(industry.key, $event)"
+      @dragover.prevent="dropIndex = index"
+      @dragleave="onDragLeave(index)"
+      @drop.prevent="onDrop(index)"
+      @dragend="onDragEnd"
     >
       {{ industry.name }}
     </v-btn>
@@ -35,11 +50,64 @@ interface Props {
 interface Emits {
   (event: 'update:modelValue', industry: string | null): void
 }
+
+/** What a drag carries, which a browser insists on being handed something for. */
+const DRAG_MEDIA_TYPE = 'text/plain'
 </script>
 
 <script setup lang="ts">
-defineProps<Props>()
+import { computed, ref } from 'vue'
+
+import { moveIndustry, orderIndustries, readOrder, writeOrder } from '@/utils/industry-order'
+
+const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+/* The arrangement this browser was left in, which the tabs are rendered in until it is changed again. */
+const order = ref<string[]>(readOrder())
+
+const draggedKey = ref<string | null>(null)
+const dropIndex = ref<number | null>(null)
+
+const orderedIndustries = computed<Industry[]>(() => orderIndustries(props.industries, order.value))
+
+const orderedKeys = computed<string[]>(() => orderedIndustries.value.map((industry) => industry.key))
+
+const onDragStart = (key: string, event: DragEvent) => {
+  draggedKey.value = key
+  event.dataTransfer?.setData(DRAG_MEDIA_TYPE, key)
+  if (event.dataTransfer !== null) {
+    event.dataTransfer.effectAllowed = 'move'
+  }
+}
+
+/*
+ * Leaving one tab is only worth forgetting the marker for when the pointer has really left it, rather than
+ * when it has crossed onto the next one - which fires the leave of the old tab after the over of the new.
+ */
+const onDragLeave = (index: number) => {
+  if (dropIndex.value === index) {
+    dropIndex.value = null
+  }
+}
+
+const onDrop = (index: number) => {
+  const key = draggedKey.value
+  const from = key === null ? -1 : orderedKeys.value.indexOf(key)
+  if (from >= 0) {
+    /* The whole arrangement is written, not only the tab that moved, so that an industry the stored order
+       never named takes its place in it rather than falling back behind every reload. */
+    order.value = moveIndustry(orderedKeys.value, from, index)
+    writeOrder(order.value)
+  }
+
+  onDragEnd()
+}
+
+const onDragEnd = () => {
+  draggedKey.value = null
+  dropIndex.value = null
+}
 </script>
 
 <style scoped>
@@ -91,6 +159,15 @@ const emit = defineEmits<Emits>()
 
 .industry-tabs__tab--active.v-btn:hover {
   background-color: rgb(var(--v-theme-tab-active));
+}
+
+/* The tab being carried fades, and the one it would land on shows the edge it would land against. */
+.industry-tabs__tab--dragged.v-btn {
+  opacity: 0.4;
+}
+
+.industry-tabs__tab--target.v-btn {
+  border-inline-start: 0.1875rem solid rgb(var(--v-theme-primary));
 }
 
 @media (max-width: 48rem) {

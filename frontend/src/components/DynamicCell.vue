@@ -5,8 +5,30 @@
     cells of the table around it do. On the event page nothing was searched, and every branch renders the
     plain value it always did.
   -->
+  <!-- A value that is a list of its own is painted chip by chip, which is how the platforms of an event read. -->
+  <span
+    v-if="kind === 'chips'"
+    class="dynamic-cell__chips"
+  >
+    <SkyChip
+      v-for="item in items"
+      :key="item"
+      :label="item"
+      :token="chipToken"
+    >
+      <HighlightedText
+        v-if="isMatch(item)"
+        :text="item"
+        :term="search"
+      />
+      <template v-else>
+        {{ item }}
+      </template>
+    </SkyChip>
+    <span v-if="items.length === 0">{{ EMPTY_PLACEHOLDER }}</span>
+  </span>
   <SkyChip
-    v-if="kind === 'chip'"
+    v-else-if="kind === 'chip' && text.length > 0"
     :label="text"
     :token="chipToken"
   >
@@ -19,6 +41,19 @@
       {{ text }}
     </template>
   </SkyChip>
+  <!-- A truth value reads as the tick or the cross it is, which is quicker to scan than the word for it. -->
+  <span
+    v-else-if="kind === 'boolean'"
+    class="dynamic-cell__text"
+  >
+    <v-icon
+      v-if="isTrue !== null"
+      size="small"
+      :icon="isTrue ? 'mdi-check-circle-outline' : 'mdi-close-circle-outline'"
+      :color="isTrue ? 'success' : 'app-muted'"
+    />
+    <template v-else>{{ EMPTY_PLACEHOLDER }}</template>
+  </span>
   <!-- A status is stored as a key and read out as a label, so the pen is given both spellings of it. -->
   <SkyChip
     v-else-if="kind === 'status'"
@@ -35,6 +70,11 @@
       {{ statusLabel }}
     </template>
   </SkyChip>
+  <!-- A point is read as its numbers here; the tables that offer the map are the ones the grid renders. -->
+  <span
+    v-else-if="kind === 'coordinate'"
+    class="dynamic-cell__text"
+  >{{ coordinateLabel }}</span>
   <!-- A cell of one of the plain tables grows with what it holds, so the files may say where they came from. -->
   <FileList
     v-else-if="kind === 'files'"
@@ -50,7 +90,6 @@
   <span
     v-else-if="isMatch(text)"
     class="dynamic-cell__text"
-    :title="text"
   >
     <HighlightedText
       :text="text"
@@ -60,7 +99,6 @@
   <span
     v-else
     class="dynamic-cell__text"
-    :title="text"
   >{{ text.length > 0 ? text : EMPTY_PLACEHOLDER }}</span>
 </template>
 
@@ -81,7 +119,7 @@ interface Emits {
   (event: 'download', artifact: Artifact): void
 }
 
-type CellKind = 'chip' | 'status' | 'files' | 'date' | 'text'
+type CellKind = 'chip' | 'chips' | 'status' | 'files' | 'date' | 'coordinate' | 'boolean' | 'text'
 </script>
 
 <script setup lang="ts">
@@ -90,6 +128,7 @@ import { computed } from 'vue'
 import FileList from '@/components/FileList.vue'
 import HighlightedText from '@/components/HighlightedText.vue'
 import { paletteToken, industryToken } from '@/utils/colors'
+import { formatCoordinate, toCoordinate } from '@/utils/coordinates'
 import { useSearchTerm } from '@/utils/grid-context'
 import { matchesTerm } from '@/utils/highlight'
 import { readArtifacts, readPath, readText } from '@/utils/rows'
@@ -107,6 +146,12 @@ const kind = computed<CellKind>(() => {
   switch (props.column.cellRenderer) {
     case 'ChipCellRenderer':
       return 'chip'
+    case 'ChipListCellRenderer':
+      return 'chips'
+    case 'CoordinateCellRenderer':
+      return 'coordinate'
+    case 'BooleanCellRenderer':
+      return 'boolean'
     case 'StatusCellRenderer':
       return 'status'
     case 'FilesCellRenderer':
@@ -125,6 +170,30 @@ const dateLabel = computed<string>(() =>
   props.column.cellRendererParams.withTime === true ? formatDateTime(text.value) : formatDate(text.value),
 )
 const artifacts = computed<Artifact[]>(() => readArtifacts(readPath(props.row, props.column.field)))
+
+/* The items of a list valued cell, read out of the value itself rather than off the flattened text. */
+const items = computed<string[]>(() => {
+  const value = readPath(props.row, props.column.field)
+
+  if (Array.isArray(value)) {
+    return value.filter((item) => item !== null && item !== '').map((item) => String(item))
+  }
+
+  return text.value.length > 0 ? [text.value] : []
+})
+
+/* Which of the three a truth valued cell is in: true, false, or never filled in at all. */
+const isTrue = computed<boolean | null>(() => {
+  const value = readPath(props.row, props.column.field)
+
+  return value === null || value === undefined || value === '' ? null : value === true || value === 'true'
+})
+
+const coordinateLabel = computed<string>(() => {
+  const point = toCoordinate(readPath(props.row, props.column.field))
+
+  return point === null ? EMPTY_PLACEHOLDER : formatCoordinate(point)
+})
 
 const chipToken = computed<string>(() => {
   const palette = props.column.cellRendererParams.palette
@@ -154,6 +223,13 @@ const isStatusMatch = computed<boolean>(() => isMatch(statusLabel.value) || isMa
 </script>
 
 <style scoped>
+.dynamic-cell__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-inline-size: 0;
+}
+
 .dynamic-cell__text {
   display: block;
   overflow: hidden;

@@ -29,7 +29,7 @@ from skyscanner_models.query import SearchQuery
 
 from events_service.constants import EVENTS_COLLECTION, EVENT_SEARCH_PATHS, FIXED_EVENT_KEYS
 from events_service.documents import EntityDocument, EventDocument
-from events_service.repositories.base_repository import IDENTIFIER_FIELD, BaseRepository
+from events_service.repositories.base_repository import IDENTIFIER_FIELD, NOT_DELETED, BaseRepository
 
 # ----- CONSTS ----- #
 
@@ -86,6 +86,7 @@ class EventRepository(BaseRepository[EventDocument]):
         order, so it has to read every match and sort them afterwards; ending the index in the ordering makes
         the very same query walk the index and stop after one page, no matter how many events match.
         """
+        await super().ensure_indexes()
         await self.create_indexes(
             [
                 IndexModel([("event_id", ASCENDING)], unique=True, name="event_id_unique"),
@@ -116,7 +117,7 @@ class EventRepository(BaseRepository[EventDocument]):
                     name="experiment_result_created",
                 ),
                 IndexModel([("event_type_keys", ASCENDING), ("created_at", DESCENDING)], name="event_type_created"),
-                IndexModel([("platform", ASCENDING), ("created_at", DESCENDING)], name="platform_created"),
+                IndexModel([("platforms", ASCENDING), ("created_at", DESCENDING)], name="platforms_created"),
             ],
         )
 
@@ -158,6 +159,9 @@ class EventRepository(BaseRepository[EventDocument]):
         await self.drop_index_if_present(name="status")
         await self.drop_index_if_present(name="experiment_result")
         await self.drop_index_if_present(name="event_type_keys")
+        # The platform of an event became a list of platforms, so the index that named the old attribute
+        # points at a path no event carries any more.
+        await self.drop_index_if_present(name="platform_created")
 
     async def find_by_reference(self, reference_id: str, excluding: str | None = None) -> EventDocument | None:
         """
@@ -229,16 +233,13 @@ class EventRepository(BaseRepository[EventDocument]):
         """
         Work out how many events a restriction matches, without paying a scan for every page of the table.
 
-        An unrestricted table asks the same question as "how big is the collection", which the document store
-        answers out of its own metadata. Every other restriction is counted once and remembered for a few
-        seconds, because the grid asks for the identical restriction again for every block it scrolls through.
+        Counting means reading every match whenever the restriction cannot be served by an index, and the
+        grid asks the identical question again for every block the user scrolls through, so the answer is
+        remembered for a few seconds. The memory is dropped by the first write this process makes.
 
         :param query: Restriction the events have to satisfy.
         :return: The amount of matching events.
         """
-        if not query:
-            return await self.estimated_count()
-
         fingerprint = _fingerprint(query=query)
         remembered = _recall(fingerprint=fingerprint)
         if remembered is not None:
@@ -291,7 +292,8 @@ class EventRepository(BaseRepository[EventDocument]):
         if remembered is not None:
             return dict(remembered)
 
-        keys = [str(value) for value in await self.collection.distinct(INDUSTRY_FIELD) if isinstance(value, str)]
+        raw_keys = await self.collection.distinct(INDUSTRY_FIELD, NOT_DELETED)
+        keys = [str(value) for value in raw_keys if isinstance(value, str)]
         totals = await asyncio.gather(*(self.count(query={INDUSTRY_FIELD: key}) for key in keys))
         counts = dict(zip(keys, totals))
         _remember(fingerprint=INDUSTRY_COUNTS_KEY, value=counts)
@@ -341,22 +343,38 @@ class EventRepository(BaseRepository[EventDocument]):
 
         return bool(result.matched_count)
 
-    async def remove_entity(self, event_id: str, entity_id: str, entity_type_key: str) -> bool:
+    async def remove_entity(
+        self,
+        event_id: str,
+        entity_id: str,
+        entity_type_key: str,
+        user: str | None = None,
+    ) -> bool:
         """
-        Remove one entity from the objects list of an event and refresh the counters of the event.
+        Remove one entity of an event and refresh the counters of the event.
+
+        The entity is marked rather than pulled out of the list, exactly as a whole document is: its files
+        are still referenced by the object storage and its history still names it, so erasing the record
+        would leave both talking about something that cannot be read any more.
 
         :param event_id: Identifier of the event the entity belongs to.
         :param entity_id: Identifier of the entity that is removed.
         :param entity_type_key: Type key of the removed entity, needed to lower the right counter.
+        :param user: Identity the removal is attributed to.
         :return: Whether the event was found and changed.
         """
         result = await self.collection.update_one(
             {IDENTIFIER_FIELD: event_id},
             {
-                "$pull": {OBJECTS_FIELD: {"id": entity_id}},
+                "$set": {
+                    f"{OBJECTS_FIELD}.$[entity].deleted": True,
+                    f"{OBJECTS_FIELD}.$[entity].deleted_at": utc_now(),
+                    f"{OBJECTS_FIELD}.$[entity].deleted_by": user,
+                    "updated_at": utc_now(),
+                },
                 "$inc": {f"entity_counts.{entity_type_key}": -1},
-                "$set": {"updated_at": utc_now()},
             },
+            array_filters=[{"entity.id": entity_id}],
         )
         self._on_write()
 
@@ -427,9 +445,10 @@ def _parse_state_clause(parse_state: ParseState) -> dict[str, Any]:
     :param parse_state: Selection made in the show selector of the toolbar.
     :return: The restriction, or an empty mapping when everything should be shown.
     """
-    has_entities = {f"{OBJECTS_FIELD}.0": {"$exists": True}}
-    no_entities = {f"{OBJECTS_FIELD}.0": {"$exists": False}}
-    unparsed_match = {"$elemMatch": {"status": {"$nin": PARSED_STATUSES}}}
+    live_match = {"$elemMatch": dict(NOT_DELETED)}
+    has_entities = {OBJECTS_FIELD: live_match}
+    no_entities = {OBJECTS_FIELD: {"$not": live_match}}
+    unparsed_match = {"$elemMatch": {"status": {"$nin": PARSED_STATUSES}, **NOT_DELETED}}
     holds_unparsed = {OBJECTS_FIELD: unparsed_match}
     holds_none_unparsed = {OBJECTS_FIELD: {"$not": unparsed_match}}
 

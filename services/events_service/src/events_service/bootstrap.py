@@ -9,6 +9,7 @@ The start up work of the events service, creating every index the collections ar
 from skyscanner_common.mongo import MongoProvider
 from skyscanner_models.enums import FieldScope
 
+from events_service.migrations import migrate_documents
 from events_service.repositories.event_repository import EventRepository
 from events_service.repositories.field_repository import FieldRepository
 from events_service.repositories.outbox_repository import OutboxRepository
@@ -23,10 +24,14 @@ from events_service.repositories.type_repository import TypeRepository
 
 async def prepare_database(provider: MongoProvider) -> None:
     """
-    Create every index the service relies on, leaving the collections themselves untouched.
+    Carry the stored documents onto the current shape and create every index the service relies on.
 
     :param provider: Owner of the shared motor client.
     """
+    # The documents come first: an index is built over whatever the collections hold, so a rewrite that runs
+    # after the indexes would leave them describing attributes that no document carries any more.
+    await migrate_documents(provider=provider)
+
     # The rule behind this index changed, so a database created before the change has to have the old one
     # taken down before the new one can be put in its place.
     subscriptions = SubscriptionRepository(provider=provider)

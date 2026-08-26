@@ -2,6 +2,7 @@
  * The public surface of the AG Grid client library - configuration parsing, grid setup and reactive rendering.
  */
 
+import { applyThemeCompatibility, supportsColorMix } from './compatibility'
 import { createGridController } from './controller'
 import { buildFilterConditions, buildFilterModel, buildSortSpecifications } from './datasource'
 import { DETAIL_ROW_KEY, buildGridOptions, isDetailRow, registerGridModules } from './grid'
@@ -43,6 +44,7 @@ export type {
 }
 export {
   DETAIL_ROW_KEY,
+  applyThemeCompatibility,
   buildFilterConditions,
   buildFilterModel,
   buildGridOptions,
@@ -51,4 +53,5 @@ export {
   isDetailRow,
   parseColumnDefinitions,
   registerGridModules,
+  supportsColorMix,
 }

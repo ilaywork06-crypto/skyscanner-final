@@ -70,12 +70,18 @@
           class="entity-table__cell"
           :style="cellStyle(column)"
         >
+          <!-- The arrow points the way the panel moves: down to open it, up to fold it away again. -->
           <v-btn
             v-if="column.colId === 'expander'"
-            :icon="isExpanded(String(entity.id)) ? 'mdi-chevron-down' : 'mdi-chevron-up'"
+            :icon="isExpanded(String(entity.id)) ? 'mdi-chevron-up' : 'mdi-chevron-down'"
             size="x-small"
             variant="text"
-            aria-label="Toggle the dynamic values of the entity"
+            :aria-label="
+              isExpanded(String(entity.id))
+                ? 'Hide the additional attributes of the entity'
+                : 'Show the additional attributes of the entity'
+            "
+            :aria-expanded="isExpanded(String(entity.id))"
             @click="toggle(String(entity.id))"
           />
           <DynamicCell
@@ -106,46 +112,24 @@
         </div>
       </div>
 
+      <!--
+        Everything the entity says about itself beyond the columns above: the fields its schema declares and
+        the additional data written under keys nobody declared. The undeclared ones used to be stored and
+        then shown nowhere at all, so they are built into columns of their own out of the value's own type.
+      -->
       <div
         v-if="isExpanded(String(entity.id))"
         class="entity-table__detail"
       >
-        <div class="entity-table__detail-head">
-          <div
-            v-for="column in dynamicColumns"
-            :key="column.colId"
-            class="entity-table__cell entity-table__cell--head"
-          >
-            {{ column.headerName }}
-          </div>
-          <div
-            v-if="dynamicColumns.length === 0"
-            class="entity-table__cell entity-table__cell--head"
-          >
-            DETAILS
-          </div>
-        </div>
-        <div class="entity-table__detail-row">
-          <div
-            v-for="column in dynamicColumns"
-            :key="column.colId"
-            class="entity-table__cell"
-          >
-            <DynamicCell
-              :column="column"
-              :row="entity"
-              :industries="industries"
-              @open="emit('open', $event)"
-              @download="emit('download', $event)"
-            />
-          </div>
-          <div
-            v-if="dynamicColumns.length === 0"
-            class="entity-table__cell"
-          >
-            {{ EMPTY_PLACEHOLDER }}
-          </div>
-        </div>
+        <AttributesTable
+          :columns="detailColumns(entity)"
+          :row="entity"
+          :industries="industries"
+          title="Additional Entity Attributes"
+          empty-text="This entity carries nothing beyond the columns above."
+          @open="emit('open', $event)"
+          @download="emit('download', $event)"
+        />
       </div>
     </div>
 
@@ -160,7 +144,6 @@
 
 <script lang="ts">
 import type { Artifact } from '@/models/common'
-import { EMPTY_PLACEHOLDER } from '@skyscanner/sky-ui'
 import type { GeneratedColumn, GridRow } from '@/models/grid'
 import type { Industry } from '@/models/industry'
 
@@ -183,7 +166,9 @@ interface Emits {
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
+import AttributesTable from '@/components/AttributesTable.vue'
 import DynamicCell from '@/components/DynamicCell.vue'
+import { attributeColumns } from '@/utils/grid-columns'
 import { readText } from '@/utils/rows'
 
 const props = withDefaults(defineProps<Props>(), { industries: () => [], downloading: false })
@@ -196,7 +181,13 @@ const visibleColumns = computed<GeneratedColumn[]>(() =>
   props.columns.filter((column) => !column.hide && !column.dynamic),
 )
 
-const dynamicColumns = computed<GeneratedColumn[]>(() => props.columns.filter((column) => column.dynamic))
+/**
+ * Build the columns of an expanded row: the declared ones first, then whatever else the entity holds.
+ *
+ * The event panel lays its own attributes out with exactly the same rule, so the two read alike and neither
+ * of them owns a private idea of what an undeclared value looks like.
+ */
+const detailColumns = (entity: GridRow): GeneratedColumn[] => attributeColumns(props.columns, entity)
 
 const cellStyle = (column: GeneratedColumn): Record<string, string> => ({
   flex: column.flex === null ? '0 0 auto' : `${column.flex} 1 0`,
@@ -252,8 +243,7 @@ watch(
   border: 0.0625rem solid rgb(var(--v-theme-app-border));
 }
 
-.entity-table__head,
-.entity-table__detail-head {
+.entity-table__head {
   display: flex;
   align-items: center;
   background-color: rgb(var(--v-theme-table-header));
@@ -262,20 +252,18 @@ watch(
   letter-spacing: 0.03em;
 }
 
-.entity-table__row,
-.entity-table__detail-row {
+.entity-table__row {
   display: flex;
   align-items: center;
   border-block-start: 0.0625rem solid rgb(var(--v-theme-app-border));
   background-color: rgb(var(--v-theme-table-row));
 }
 
+/* The panel is inset under the row it belongs to, and the table inside it draws its own frame. */
 .entity-table__detail {
-  margin-inline-start: 2rem;
-  margin-block: 0.5rem;
-  border: 0.0625rem solid rgb(var(--v-theme-app-border));
-  border-radius: 0.5rem;
-  overflow: hidden;
+  margin-inline: 2rem 1rem;
+  margin-block: 0.5rem 0.75rem;
+  min-inline-size: 0;
 }
 
 .entity-table__bar {

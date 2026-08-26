@@ -9,7 +9,7 @@
     v-show="scrollable"
     ref="track"
     class="sticky-scroll"
-    :style="{ inlineSize: `100%` }"
+    :style="{ inlineSize: `${trackWidth}px`, marginInlineStart: `${trackOffset}px` }"
     aria-hidden="true"
     @scroll="onTrackScroll"
   >
@@ -39,12 +39,13 @@ const SCROLL_EPSILON = 1
 </script>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<Props>()
 
 const track = ref<HTMLElement | null>(null)
 const trackWidth = ref<number>(0)
+const trackOffset = ref<number>(0)
 const extentWidth = ref<number>(0)
 const scrollable = ref<boolean>(false)
 
@@ -76,17 +77,25 @@ const followViewport = () => {
 /**
  * Measure the table, which is what the bar is a copy of.
  *
- * The bar is given the width of the part of the table that is on screen and a strip as wide as the whole of
- * it, so that the distance the two can travel is the same and one can be read as the other. A table whose
- * columns already fit has nowhere to travel and shows no bar at all.
+ * The bar is given the width of the part of the table that moves and a strip as wide as all of its columns,
+ * so that the distance the two can travel is the same and one can be read as the other. That width is not
+ * the width of the table: the pinned columns stand still at either end of it, and a bar as wide as the whole
+ * table would have less room to travel than the columns it moves - which is what left the last column out of
+ * reach, however far the bar was dragged. It is laid out where the moving part of the table is instead, and
+ * lines up underneath it. A table whose columns already fit has nowhere to travel and shows no bar at all.
  */
 const measure = () => {
   const viewport = props.viewport
-  if (viewport === null) {
+  const bar = track.value
+  if (viewport === null || bar === null) {
     return
   }
 
+  const parent = bar.parentElement
+  const origin = parent === null ? 0 : parent.getBoundingClientRect().left
+
   trackWidth.value = viewport.clientWidth
+  trackOffset.value = Math.max(0, viewport.getBoundingClientRect().left - origin)
   extentWidth.value = viewport.scrollWidth
   scrollable.value = viewport.scrollWidth - viewport.clientWidth >= SCROLL_EPSILON
 
@@ -136,6 +145,12 @@ const attach = (viewport: HTMLElement | null) => {
 }
 
 watch(() => props.viewport, attach, { immediate: true })
+
+/*
+ * The bar is laid out against its own place on the page, which it has none of until it is on the page. A
+ * table that was already scrollable when this was created is therefore measured again once it is.
+ */
+onMounted(measure)
 
 onBeforeUnmount(detach)
 </script>

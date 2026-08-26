@@ -26,6 +26,9 @@ class FieldType(str, Enum):
     ENUM = "enum"
     FILE = "file"
     JSON = "json"
+    # A point on the globe, stored as a longitude, a latitude and an altitude rather than as free text, so
+    # that it can be picked off a map and read back onto one.
+    COORDINATE = "coordinate"
 
 
 class FieldScope(str, Enum):
@@ -67,8 +70,24 @@ class EntityStatus(str, Enum):
 
     RAW = "raw"
     PARSING = "parsing"
+    PARTIALLY_PARSED = "partially_parsed"
     PARSED = "parsed"
     FAILED = "failed"
+
+
+class OptionalEventField(str, Enum):
+    """
+    A built in field of an event that only some event types ask for, switched on by the type declaration.
+
+    The dynamic schema shapes the entities of an event, never the event form itself, so the built in fields
+    that are not universal are named here and every event type says which of them it wants. An experiment
+    result, for instance, only means anything for a type that describes an experiment.
+    """
+
+    REFERENCE_ID = "reference_id"
+    EVENT_DATE = "event_date"
+    EXPERIMENT_RESULT = "experiment_result"
+    NOTES = "notes"
 
 
 class ParseState(str, Enum):

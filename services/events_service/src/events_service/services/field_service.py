@@ -8,11 +8,13 @@ The rules around the dynamic schema - declaring fields for an industry and valid
 
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
+
+from pydantic import ValidationError as PydanticValidationError
 
 from skyscanner_common.datetime_utils import ensure_utc, utc_now
 from skyscanner_common.errors import ConflictError, NotFoundError, ValidationError
-from skyscanner_models.common import MetadataAttribute, UserContext
+from skyscanner_models.common import Coordinate, MetadataAttribute, UserContext
 from skyscanner_models.enums import DependencyOperator, FieldScope, FieldType
 from skyscanner_models.field import (
     FieldCreateRequest,
@@ -51,6 +53,7 @@ class FieldService:
         industry: str | None = None,
         entity_type: str | None = None,
         include_shared: bool = True,
+        additional: bool | None = None,
         offset: int = 0,
         limit: int = 0,
     ) -> list[FieldResponse]:
@@ -61,6 +64,7 @@ class FieldService:
         :param industry: Industry whose own declarations are added to the shared ones.
         :param entity_type: Entity type the declarations are limited to.
         :param include_shared: Whether the declarations that belong to no industry are included.
+        :param additional: Which half of the form is read, both halves when it is left open.
         :param offset: Amount of declarations skipped before collecting.
         :param limit: Largest amount of declarations that is returned, zero for all of them.
         :return: The matching declarations ordered by their relative position.
@@ -70,6 +74,7 @@ class FieldService:
             industry=industry,
             entity_type=entity_type,
             include_shared=include_shared,
+            additional=additional,
             offset=offset,
             limit=limit,
         )
@@ -125,14 +130,15 @@ class FieldService:
 
         return refreshed.to_response()
 
-    async def delete_field(self, field_id: str) -> None:
+    async def delete_field(self, field_id: str, user: UserContext) -> None:
         """
         Remove a stored declaration, which hides the generated column without touching the stored values.
 
         :param field_id: Identifier of the declaration that is removed.
+        :param user: Identity the removal is attributed to.
         :raises NotFoundError: When the identifier is unknown.
         """
-        removed = await self._repository.delete(identifier=field_id)
+        removed = await self._repository.delete(identifier=field_id, user=user.username)
         if not removed:
             raise NotFoundError(message="The field declaration does not exist", details={"id": field_id})
 
@@ -143,17 +149,31 @@ class FieldService:
         industry: str | None = None,
         entity_type: str | None = None,
         context: dict[str, Any] | None = None,
+        asked: set[str] | None = None,
+        carried: set[str] | None = None,
     ) -> tuple[list[MetadataAttribute], dict[str, Any]]:
         """
         Validate the values a user supplied against the declared schema and shape them for storage.
+
+        Every value has to follow a declaration. A key nobody declared used to be accepted, stored and turned
+        into a column of its own, which is how two people describing the same thing ended up writing
+        sample_rate and sampling_rate onto neighbouring rows and how columns appeared that nobody remembered
+        creating. A key that no declaration covers is therefore refused, and the answer to a value that ought
+        to be recorded is to declare the field for it rather than to invent the key on the spot.
 
         :param scope: Whether the values belong to an event or to an entity.
         :param supplied: Values the user supplied, keyed by the field they belong to.
         :param industry: Industry whose declarations apply on top of the shared ones.
         :param entity_type: Entity type the declarations are limited to.
         :param context: Values of the object this form hangs under, which its dependencies may point at.
+        :param asked: Declared keys this particular form asks for, empty when it asks for all of them. A
+            declaration the form never showed cannot be required by it, but a value supplied for one is
+            still measured against its declaration.
+        :param carried: Undeclared keys the object already holds, which are kept rather than refused. What
+            was written before the rule existed stays readable and editable; nothing new joins it.
         :return: The validated attributes and the flattened mapping used for queries.
-        :raises ValidationError: When a required value is missing or a value breaks a declared rule.
+        :raises ValidationError: When a required value is missing, a value breaks a declared rule, or a value
+            was supplied under a key no declaration covers.
         """
         declarations = await self._repository.list_for_scope(scope=scope, industry=industry, entity_type=entity_type)
         by_key = {declaration.key: declaration for declaration in declarations}
@@ -168,6 +188,10 @@ class FieldService:
         supplied_values = {key: attribute.value for key, attribute in supplied_by_key.items()}
 
         for key, declaration in by_key.items():
+            on_form = asked is None or key in asked
+            if not on_form and key not in supplied_by_key:
+                continue
+
             if not dependencies_hold(
                 dependencies=declaration.depends_on,
                 values=supplied_values,
@@ -177,7 +201,7 @@ class FieldService:
 
             raw_value = supplied_by_key[key].value if key in supplied_by_key else declaration.default
             if _is_empty(raw_value):
-                if declaration.required:
+                if declaration.required and on_form:
                     raise ValidationError(
                         message=f"The field {declaration.name} is required",
                         details={"key": key},
@@ -189,9 +213,13 @@ class FieldService:
             flattened[key] = stored
             attributes.append(MetadataAttribute(key=key, value=_to_json_value(stored), type=declaration.type))
 
-        for key, attribute in supplied_by_key.items():
-            if key in by_key or _is_empty(attribute.value):
-                continue
+        undeclared = [
+            key for key, attribute in supplied_by_key.items() if key not in by_key and not _is_empty(attribute.value)
+        ]
+        _require_declared(keys=undeclared, allowed=carried or set(), scope=scope)
+
+        for key in undeclared:
+            attribute = supplied_by_key[key]
             flattened[key] = attribute.value
             attributes.append(MetadataAttribute(key=key, value=attribute.value, type=attribute.type))
 
@@ -199,6 +227,25 @@ class FieldService:
 
 
 # ----- FUNCTIONS ----- #
+
+
+def _require_declared(keys: list[str], allowed: set[str], scope: FieldScope) -> None:
+    """
+    Refuse values written under keys that no declaration covers.
+
+    :param keys: Keys the caller supplied that no declaration covers.
+    :param allowed: Keys the object already holds, which are carried rather than refused.
+    :param scope: Whether the values belong to an event or to an entity, reported with a refusal.
+    :raises ValidationError: When one of the keys is neither declared nor already stored.
+    """
+    refused = sorted(key for key in keys if key not in allowed)
+    if not refused:
+        return
+
+    raise ValidationError(
+        message="Every value has to follow a field declared on the Schema page",
+        details={"keys": ", ".join(refused), "scope": scope.value},
+    )
 
 
 def dependencies_hold(
@@ -317,7 +364,9 @@ def _coerce_single(declaration: FieldDocument, value: Any) -> Any:
             return _coerce_boolean(value=value)
         if field_type in {FieldType.DATE, FieldType.DATETIME}:
             return _coerce_datetime(value=value)
-    except (TypeError, ValueError) as error:
+        if field_type is FieldType.COORDINATE:
+            return _coerce_coordinate(value=value)
+    except (TypeError, ValueError, PydanticValidationError) as error:
         raise ValidationError(
             message=f"The value of {declaration.name} is not a valid {field_type.value}",
             details={"key": declaration.key},
@@ -363,6 +412,29 @@ def _coerce_datetime(value: Any) -> datetime:
         raise ValueError(f"{value} is not a moment")
 
     return converted
+
+
+def _coerce_coordinate(value: Any) -> dict[str, Any]:
+    """
+    Read a supplied value as a point on the globe, whatever shape the caller wrote it in.
+
+    A map picker hands back the three numbers by name, while a script is more likely to write the pair or the
+    triple as a list, so both are accepted and both are stored the same way.
+
+    :param value: Value the user supplied.
+    :return: The point as the three named numbers it is stored as.
+    :raises ValueError: When the input does not spell a point.
+    """
+    if isinstance(value, (list, tuple)):
+        if len(value) not in {2, 3}:
+            raise ValueError(f"{value} is not a coordinate")
+        lon, lat, *rest = value
+        return Coordinate(lon=float(lon), lat=float(lat), alt=float(rest[0]) if rest else None).model_dump()
+
+    if isinstance(value, Mapping):
+        return Coordinate.model_validate(dict(value)).model_dump()
+
+    raise ValueError(f"{value} is not a coordinate")
 
 
 def _check_constraints(declaration: FieldDocument, value: Any) -> None:

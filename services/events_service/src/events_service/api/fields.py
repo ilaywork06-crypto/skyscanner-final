@@ -32,6 +32,7 @@ async def list_fields(
     industry: str | None = None,
     entity_type: str | None = None,
     include_shared: bool = True,
+    additional: bool | None = None,
     offset: int = OFFSET_QUERY,
     limit: int = LIMIT_QUERY,
 ) -> list[FieldResponse]:
@@ -43,6 +44,7 @@ async def list_fields(
     :param industry: Industry whose own declarations are added to the shared ones.
     :param entity_type: Entity type the declarations are limited to.
     :param include_shared: Whether the declarations that belong to no industry are included.
+    :param additional: Which half of the form is read, both halves when it is left open.
     :param offset: Amount of declarations skipped before collecting.
     :param limit: Largest amount of declarations that is returned, zero for all of them.
     :return: The matching declarations.
@@ -52,6 +54,7 @@ async def list_fields(
         industry=industry,
         entity_type=entity_type,
         include_shared=include_shared,
+        additional=additional,
         offset=offset,
         limit=limit,
     )
@@ -96,15 +99,16 @@ async def update_field(
 async def delete_field(
     field_id: str,
     service: FieldServiceDependency,
-    _: Annotated[UserContext, Depends(require_permission(Permission.FIELD_MANAGE))],
+    user: Annotated[UserContext, Depends(require_permission(Permission.FIELD_MANAGE))],
 ) -> OperationResult:
     """
     Remove a stored declaration, which hides the generated column without touching the stored values.
 
     :param field_id: Identifier of the declaration that is removed.
     :param service: Owner of the dynamic schema.
+    :param user: Identity the removal is attributed to.
     :return: The acknowledgement of the removal.
     """
-    await service.delete_field(field_id=field_id)
+    await service.delete_field(field_id=field_id, user=user)
 
     return OperationResult(success=True, message="The field declaration was removed", affected=1)

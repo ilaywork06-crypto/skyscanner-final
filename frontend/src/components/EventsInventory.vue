@@ -11,6 +11,7 @@
       :columns="columns"
       :visible-columns="visibleColumns"
       :templates="templates"
+      :active-template="activeTemplate"
       :selected-count="selectedIds.length"
       :archiving="archiving"
       :fullscreen="fullscreen"
@@ -18,6 +19,7 @@
       @update:parse-state="onParseState"
       @update:sort="onSort"
       @toggle-column="onToggleColumn"
+      @restore-view="onRestoreView"
       @apply-template="onApplyTemplate"
       @save-template="onOpenSaveTemplate"
       @export="onExport"
@@ -172,6 +174,46 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!--
+      Going back to the generated table throws away whatever the user arranged since, exactly as loading a
+      template does, so it is asked about in the same words and offers the same way out: keep the view under
+      a name of its own first, or let it go.
+    -->
+    <v-dialog
+      v-model="restoreDialog"
+      max-width="32rem"
+    >
+      <v-card>
+        <v-card-title>Restore the default view?</v-card-title>
+        <v-card-text>
+          <p>
+            {{ restoreDescription }}
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn
+            variant="text"
+            @click="restoreDialog = false"
+          >
+            Cancel
+          </v-btn>
+          <v-spacer />
+          <v-btn
+            variant="text"
+            @click="onSaveBeforeRestore"
+          >
+            SAVE CURRENT VIEW FIRST
+          </v-btn>
+          <v-btn
+            color="primary"
+            @click="onConfirmRestore"
+          >
+            DISCARD AND RESTORE
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -190,6 +232,9 @@ interface Props {
 }
 
 const SEARCH_DEBOUNCE_MS = 350
+
+/** The scope every template of the inventory is filed under, which is what the remembered choice is keyed by. */
+const TEMPLATE_SCOPE = 'event'
 
 /** The key that leaves the zoomed table, which is the way out every full screen view of a browser offers. */
 const ESCAPE_KEY = 'Escape'
@@ -211,6 +256,7 @@ import { useSnackbar } from '@/composables/useSnackbar'
 import { useIndustries } from '@/composables/useIndustries'
 import { downloadArtifact } from '@/requests/storage'
 import { createTemplate, downloadEventFiles, exportEvents, listTemplates } from '@/requests/templates'
+import { readActiveTemplate, writeActiveTemplate } from '@/utils/active-template'
 import { downloadBlob } from '@/utils/download'
 
 const props = defineProps<Props>()
@@ -228,6 +274,7 @@ const selectedIds = ref<string[]>([])
 const createDialog = ref<boolean>(false)
 const templateDialog = ref<boolean>(false)
 const switchDialog = ref<boolean>(false)
+const restoreDialog = ref<boolean>(false)
 const viewerDialog = ref<boolean>(false)
 const viewedArtifact = ref<Artifact | null>(null)
 const archiving = ref<boolean>(false)
@@ -244,6 +291,15 @@ const templateShared = ref<boolean>(false)
 const pendingTemplate = ref<TableTemplate | null>(null)
 const savedFingerprint = ref<string | null>(null)
 
+/*
+ * The saved view the table is showing, remembered in this browser so that a user who works out of one view
+ * every day is not made to pick it again every morning. Nothing means the generated table.
+ */
+const activeTemplateId = ref<string | null>(null)
+
+/* Whether the pending answer is about restoring the default view rather than about loading a template. */
+const restoringToDefault = ref<boolean>(false)
+
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const columns = computed<GeneratedColumn[]>(() => controller.configuration.value?.columns ?? [])
@@ -251,6 +307,20 @@ const parseState = computed<ParseState>(() => controller.parseState.value as Par
 const sortKey = computed<string>(() => controller.sortSpecifications.value[0]?.key ?? 'created_at')
 const sortDirection = computed<SortDirection>(() => controller.sortSpecifications.value[0]?.direction ?? 'desc')
 const pendingTemplateName = computed<string>(() => pendingTemplate.value?.name ?? '')
+
+const activeTemplate = computed<TableTemplate | null>(
+  () => templates.value.find((template) => template.id === activeTemplateId.value) ?? null,
+)
+
+/* The ordering the generated table comes with, which is where restoring the default view puts it back. */
+const defaultSort = computed<SortSpecification[]>(() => controller.configuration.value?.defaultSort ?? [])
+
+const restoreDescription = computed<string>(() =>
+  activeTemplate.value === null
+    ? 'The columns, ordering and filters of the current view were changed and are not saved anywhere.'
+    : `The current view was changed since ${activeTemplate.value.name} was loaded, and the changes are not `
+      + 'saved anywhere.',
+)
 
 /**
  * Read the presentation of the columns the way a template stores it, taken from the running table so that a
@@ -315,10 +385,35 @@ const load = async (): Promise<void> => {
   grid.value?.applySort(controller.sortSpecifications.value)
   rememberView()
   try {
-    templates.value = await listTemplates('event', props.industry)
+    templates.value = await listTemplates(TEMPLATE_SCOPE, props.industry)
   } catch (error) {
     reportError(error)
   }
+
+  await restoreRememberedTemplate()
+}
+
+/**
+ * Put the table back on the saved view it was last left showing.
+ *
+ * The choice is remembered rather than the view itself, so a template that was changed since is loaded as it
+ * stands now, and one that was deleted - or that belonged to an industry this table is not showing - simply
+ * leaves the table on the generated view and the stale memory of it is forgotten.
+ */
+const restoreRememberedTemplate = async (): Promise<void> => {
+  const remembered = readActiveTemplate(TEMPLATE_SCOPE, props.industry)
+  if (remembered === null) {
+    return
+  }
+
+  const template = templates.value.find((candidate) => candidate.id === remembered)
+  if (template === undefined) {
+    writeActiveTemplate(TEMPLATE_SCOPE, props.industry, null)
+
+    return
+  }
+
+  await applyTemplate(template)
 }
 
 const onSearch = (value: string) => {
@@ -463,12 +558,14 @@ const onOpenSaveTemplate = () => {
 const onTemplateDialogToggle = (open: boolean) => {
   if (!open) {
     pendingTemplate.value = null
+    restoringToDefault.value = false
   }
 }
 
 const onCancelSaveTemplate = () => {
   templateDialog.value = false
   pendingTemplate.value = null
+  restoringToDefault.value = false
 }
 
 const onSaveTemplate = async (): Promise<void> => {
@@ -476,7 +573,7 @@ const onSaveTemplate = async (): Promise<void> => {
     const saved = await createTemplate({
       name: templateName.value,
       description: templateDescription.value,
-      scope: 'event',
+      scope: TEMPLATE_SCOPE,
       industry: props.industry,
       shared: templateShared.value,
       columns: readTemplateColumns(),
@@ -487,6 +584,10 @@ const onSaveTemplate = async (): Promise<void> => {
     templateDialog.value = false
     templateName.value = ''
     templateDescription.value = ''
+    /* Nothing else is waiting for the save, so the table is now showing the view that was just named. */
+    if (pendingTemplate.value === null && !restoringToDefault.value) {
+      setActiveTemplate(saved.id)
+    }
     rememberView()
     notify('The view was saved as a template', 'success')
     await applyPendingTemplate()
@@ -522,17 +623,83 @@ const applyTemplate = async (template: TableTemplate): Promise<void> => {
     controller.sortSpecifications.value = template.sort
   }
   await controller.goToPage(1)
+  setActiveTemplate(template.id)
   rememberView()
 }
 
 /**
- * Load the template that was waiting for the unsaved view to be dealt with, if there is one.
+ * Record which saved view the table is showing, both on screen and in this browser for the next visit.
+ */
+const setActiveTemplate = (templateId: string | null) => {
+  activeTemplateId.value = templateId
+  writeActiveTemplate(TEMPLATE_SCOPE, props.industry, templateId)
+}
+
+/**
+ * Put the table back the way the backend generates it: every column as it was declared, nothing filtered,
+ * nothing searched and the ordering the configuration asked for. It is the one view always there to return
+ * to, and returning to it forgets the saved view this browser was remembering.
+ */
+const restoreDefaultView = async (): Promise<void> => {
+  visibleColumns.value = columns.value.filter((column) => !column.hide).map((column) => column.colId)
+  controller.search.value = ''
+  controller.parseState.value = 'all'
+  controller.filterConditions.value = []
+  controller.sortSpecifications.value = [...defaultSort.value]
+
+  await grid.value?.resetView(controller.sortSpecifications.value)
+  await controller.goToPage(1)
+  setActiveTemplate(null)
+  rememberView()
+  notify('The default view was restored', 'success')
+}
+
+/**
+ * Go back to the generated table, asking first when the current view holds arrangements nobody saved.
+ */
+const onRestoreView = () => {
+  if (savedFingerprint.value === null || savedFingerprint.value === readViewFingerprint()) {
+    void restoreDefaultView()
+
+    return
+  }
+
+  restoringToDefault.value = true
+  restoreDialog.value = true
+}
+
+const onConfirmRestore = () => {
+  restoreDialog.value = false
+  restoringToDefault.value = false
+  void restoreDefaultView()
+}
+
+/**
+ * Keep the current view under a name of its own before the generated one replaces it.
+ */
+const onSaveBeforeRestore = () => {
+  restoreDialog.value = false
+  templateDialog.value = true
+}
+
+/**
+ * Carry out whatever was waiting for the unsaved view to be dealt with - a template to load, or the way back
+ * to the generated table - and nothing at all when the save was not standing in for either.
  */
 const applyPendingTemplate = async (): Promise<void> => {
   const waiting = pendingTemplate.value
+  const toDefault = restoringToDefault.value
   pendingTemplate.value = null
+  restoringToDefault.value = false
+
   if (waiting !== null) {
     await applyTemplate(waiting)
+
+    return
+  }
+
+  if (toDefault) {
+    await restoreDefaultView()
   }
 }
 
@@ -549,6 +716,7 @@ const onApplyTemplate = (template: TableTemplate) => {
 
 const onCancelSwitch = () => {
   pendingTemplate.value = null
+  restoringToDefault.value = false
   switchDialog.value = false
 }
 

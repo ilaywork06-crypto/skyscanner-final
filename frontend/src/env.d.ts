@@ -6,6 +6,10 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string
+  /** The tile server the coordinate field draws its map from, named by the deployment. */
+  readonly VITE_MAP_TILE_URL: string
+  /** What that tile server is credited with underneath the map. */
+  readonly VITE_MAP_ATTRIBUTION: string
 }
 
 interface ImportMeta {

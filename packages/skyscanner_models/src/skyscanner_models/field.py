@@ -82,8 +82,15 @@ class FieldBase(BaseModel):
     default: JsonValue = Field(default=None, description="Value used when the user leaves the field empty")
     required: bool = Field(default=False, description="Whether a value has to be supplied")
     scope: FieldScope = Field(default=FieldScope.EVENT, description="Whether the field belongs to events or entities")
-    industry: str | None = Field(default=None, description="Industry key owning the field, empty when the field is shared")
+    industry: str | None = Field(
+        default=None,
+        description="Industry key owning the field, empty when the field is shared",
+    )
     entity_type: str | None = Field(default=None, description="Entity type key the field is limited to")
+    # Which of the two halves of a form the field belongs to. The declared fields describe the object itself,
+    # while the additional ones describe the free form block underneath it - the block users used to fill in
+    # with keys of their own invention. Declaring those keys is what turns that block into a standard.
+    additional: bool = Field(default=False, description="Whether the field belongs to the additional data block")
     metadata: FieldMetadata = Field(default_factory=FieldMetadata, description="Rendering descriptors of the field")
     constraints: list[FieldConstraint] = Field(default_factory=list, description="Validation rules of the field")
     depends_on: list[FieldDependency] = Field(
@@ -115,6 +122,7 @@ class FieldUpdateRequest(BaseModel):
     array: bool | None = Field(default=None, description="New multiplicity of the field")
     default: JsonValue = Field(default=None, description="New fallback value of the field")
     required: bool | None = Field(default=None, description="New requiredness of the field")
+    additional: bool | None = Field(default=None, description="New half of the form the field belongs to")
     metadata: FieldMetadata | None = Field(default=None, description="New rendering descriptors of the field")
     constraints: list[FieldConstraint] | None = Field(default=None, description="New validation rules of the field")
     depends_on: list[FieldDependency] | None = Field(default=None, description="New conditions on other fields")
@@ -131,6 +139,13 @@ class FieldResponse(FieldBase):
     """
 
     id: str = Field(description="Identifier of the field definition")
+    # Nobody declared this one: it was read off the stored documents so that a value written by a script or
+    # typed into the additional data block still reaches the table. Saying so is what stops a reader
+    # wondering which colleague invented a column they have never seen a form ask for.
+    discovered: bool = Field(
+        default=False,
+        description="Whether the definition was inferred from the stored documents rather than declared",
+    )
     created_at: datetime = Field(description="UTC moment the field was declared")
     updated_at: datetime | None = Field(default=None, description="UTC moment the field last changed")
     created_by: str | None = Field(default=None, description="User that declared the field")

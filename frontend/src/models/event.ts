@@ -8,6 +8,7 @@ import type {
   ExperimentResult,
   MetadataAttribute,
   ObjectTypeReference,
+  OptionalEventField,
 } from './common'
 import type { EntityCreateRequest, EntityResponse } from './entity'
 
@@ -16,7 +17,12 @@ interface EventType {
   key: string
   name: string
   description: string
-  industry: string | null
+  /** The industries the type belongs to. An empty list means every industry may use it. */
+  industries: string[]
+  /** The built in event fields this type asks for on top of the ones every event carries. */
+  fields: OptionalEventField[]
+  /** The keys of the declared event fields this type asks for on top of the built in ones. */
+  custom_fields: string[]
 }
 
 interface EventSummary {
@@ -26,7 +32,7 @@ interface EventSummary {
   name: string
   event_type: ObjectTypeReference[]
   industry: string
-  platform: string
+  platforms: string[]
   status: EventStatus
   experiment_result: ExperimentResult | null
   event_date: string | null
@@ -50,7 +56,7 @@ interface EventCreateRequest {
   reference_id: string
   event_type_keys: string[]
   industry: string
-  platform: string
+  platforms: string[]
   status: EventStatus
   experiment_result: ExperimentResult | null
   event_date: string | null
@@ -68,7 +74,7 @@ interface EventUpdateRequest {
   reference_id?: string
   event_type_keys?: string[]
   industry?: string
-  platform?: string
+  platforms?: string[]
   status?: EventStatus
   experiment_result?: ExperimentResult | null
   event_date?: string | null

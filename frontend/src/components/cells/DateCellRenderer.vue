@@ -1,8 +1,5 @@
 <template>
-  <span
-    class="date-cell"
-    :title="fullMoment"
-  >{{ display }}</span>
+  <span class="date-cell">{{ display }}</span>
 </template>
 
 <script lang="ts">
@@ -34,7 +31,6 @@ const raw = computed<string | null>(() => {
 const display = computed<string>(() =>
   props.params.withTime === true ? formatDateTime(raw.value) : formatDate(raw.value),
 )
-const fullMoment = computed<string>(() => formatDateTime(raw.value))
 </script>
 
 <style>

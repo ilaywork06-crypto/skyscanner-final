@@ -15,18 +15,18 @@
           <div class="edit-event__field">
             <label
               class="edit-event__label"
-              for="edit-name"
+              for="edit-brief"
             >
-              <span class="edit-event__required">*</span>Name
-              <SkyInfoIcon label="What Name means">
-                The name this event is listed and searched by. It cannot be left empty: an event without a
-                name is one nobody can tell apart from the next one.
+              <span class="edit-event__required">*</span>Event Brief
+              <SkyInfoIcon label="What Event Brief means">
+                The short line this event is listed and searched by. It cannot be left empty: an event
+                without a brief is one nobody can tell apart from the next one.
               </SkyInfoIcon>
             </label>
             <v-text-field
-              id="edit-name"
+              id="edit-brief"
               v-model="name"
-              placeholder="Enter event name"
+              placeholder="Enter event brief"
             />
           </div>
 
@@ -37,13 +37,19 @@
             >
               Platform
               <SkyInfoIcon label="What Platform means">
-                The platform the event was produced on. Typing a name no event carries yet creates it.
+                The platforms declared for this industry on the Types page. An event that ran on several of
+                them names all of them.
               </SkyInfoIcon>
             </label>
-            <v-text-field
+            <v-select
               id="edit-platform"
-              v-model="platform"
-              placeholder="Enter platform"
+              v-model="platforms"
+              :items="platformOptions"
+              item-title="name"
+              item-value="key"
+              multiple
+              chips
+              placeholder="Pick the platforms"
             />
           </div>
 
@@ -59,7 +65,10 @@
             />
           </div>
 
-          <div class="edit-event__field">
+          <div
+            v-if="asks('event_date')"
+            class="edit-event__field"
+          >
             <label
               class="edit-event__label"
               for="edit-date"
@@ -71,7 +80,10 @@
             />
           </div>
 
-          <div class="edit-event__field">
+          <div
+            v-if="asks('reference_id')"
+            class="edit-event__field"
+          >
             <label
               class="edit-event__label"
               for="edit-reference"
@@ -90,7 +102,10 @@
             />
           </div>
 
-          <div class="edit-event__field">
+          <div
+            v-if="asks('experiment_result')"
+            class="edit-event__field"
+          >
             <label
               class="edit-event__label"
               for="edit-result"
@@ -104,7 +119,10 @@
             />
           </div>
 
-          <div class="edit-event__field edit-event__field--wide">
+          <div
+            v-if="asks('notes')"
+            class="edit-event__field edit-event__field--wide"
+          >
             <label
               class="edit-event__label"
               for="edit-notes"
@@ -123,12 +141,6 @@
           </div>
         </div>
 
-        <MetadataFieldsPanel
-          v-model="values"
-          :fields="fields"
-          title="Metadata fields"
-        />
-
         <!--
           Every edit joins the history of the event, and a history without reasons only says that somebody
           changed something. The reason is therefore asked for before the change can be saved.
@@ -145,14 +157,45 @@
           />
         </div>
 
+        <!--
+          The additional attributes of the event: the fields its industry declared and its type asks for,
+          filled in here so that a value revealed after the upload has somewhere to go.
+        -->
+        <MetadataFieldsPanel
+          v-if="eventFields.length > 0 || legacyCount > 0"
+          :model-value="values"
+          :types="valueTypes"
+          :fields="eventFields"
+          title="Additional Event Attributes"
+          @update:model-value="values = $event"
+          @update:types="valueTypes = $event"
+        />
+
         <div class="edit-event__files">
           <h3 class="edit-event__section">
-            Add more files
+            Files
           </h3>
+          <!--
+            The files of an event used to be an add only list: a file uploaded by mistake, or one that was
+            superseded, stayed on the event for good. Marking one here detaches it as part of this very edit,
+            so the removal carries the same reason and lands in the history beside every other change.
+          -->
+          <StoredFilesEditor
+            v-model="keptFiles"
+            :stored="event.additional_files"
+            label="Attached files"
+          />
           <FileDropzone
+            label="Add more files"
             :files="newFiles"
             @update:files="newFiles = $event"
           />
+          <p
+            v-if="duplicateWarning.length > 0"
+            class="edit-event__duplicate"
+          >
+            {{ duplicateWarning }}
+          </p>
         </div>
       </v-card-text>
 
@@ -193,10 +236,11 @@
 </template>
 
 <script lang="ts">
-import type { EventStatus, ExperimentResult, JsonValue } from '@/models/common'
+import type { Artifact, EventStatus, ExperimentResult, FieldType, JsonValue, OptionalEventField } from '@/models/common'
 import { SkyDropzone as FileDropzone, SkyInfoIcon, toDateInput, toIsoDate } from '@skyscanner/sky-ui'
 import type { EventDetail } from '@/models/event'
 import type { FieldDefinition } from '@/models/field'
+import type { Platform } from '@/models/platform'
 
 interface Props {
   modelValue: boolean
@@ -210,21 +254,25 @@ interface Emits {
 
 /** What the user is told while Save is refusing to be pressed. */
 const NOTHING_CHANGED = 'Nothing has changed yet'
-const NAME_MISSING = 'An event has to keep a name'
+const NAME_MISSING = 'An event has to keep a brief'
 const REASON_MISSING = 'A reason is needed before this can be saved'
+const DUPLICATE_FILES = 'A file cannot be attached twice under the same name'
 </script>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
 import MetadataFieldsPanel from '@/components/MetadataFieldsPanel.vue'
+import StoredFilesEditor from '@/components/StoredFilesEditor.vue'
 import UnsavedChangesDialog from '@/components/UnsavedChangesDialog.vue'
 import { useDirtyGuard } from '@/composables/useDirtyGuard'
 import { useSnackbar } from '@/composables/useSnackbar'
 import { updateEvent } from '@/requests/events'
-import { listFields } from '@/requests/schema'
+import { listEventTypes, listFields, listPlatforms } from '@/requests/schema'
 import { uploadArtifacts } from '@/requests/storage'
-import { toMetadataAttributes, toValueMap } from '@/utils/rows'
+import { collisionMessage } from '@/utils/artifacts'
+import { toMetadataAttributes, toValueMap, toValueTypeMap } from '@/utils/rows'
+
 
 const STATUS_OPTIONS: EventStatus[] = ['draft', 'raw', 'parsed', 'partial', 'failed', 'archived']
 const RESULT_OPTIONS: ExperimentResult[] = ['successful', 'partial', 'failed']
@@ -236,13 +284,18 @@ const { notify, reportError } = useSnackbar()
 
 const name = ref<string>('')
 const referenceId = ref<string>('')
-const platform = ref<string>('')
+const platforms = ref<string[]>([])
 const status = ref<EventStatus>('raw')
 const experimentResult = ref<ExperimentResult | null>(null)
 const eventDate = ref<string>('')
 const notes = ref<string>('')
+const platformOptions = ref<Platform[]>([])
+const askedFields = ref<OptionalEventField[]>([])
+const eventFields = ref<FieldDefinition[]>([])
 const values = ref<Record<string, JsonValue>>({})
-const fields = ref<FieldDefinition[]>([])
+const valueTypes = ref<Record<string, FieldType>>({})
+/* The stored files that will survive the edit, which starts out as every one of them. */
+const keptFiles = ref<Artifact[]>([])
 const newFiles = ref<File[]>([])
 const reason = ref<string>('')
 const saving = ref<boolean>(false)
@@ -260,12 +313,13 @@ const snapshot = (): string =>
   JSON.stringify({
     name: name.value,
     referenceId: referenceId.value,
-    platform: platform.value,
+    platforms: [...platforms.value],
     status: status.value,
     experimentResult: experimentResult.value,
     eventDate: eventDate.value,
     notes: notes.value,
-    values: values.value,
+    values: { ...values.value },
+    keptFiles: keptFiles.value.map((file) => file.id),
     files: newFiles.value.map((file) => `${file.name}:${file.size}`),
   })
 
@@ -276,9 +330,33 @@ const snapshot = (): string =>
  */
 const isDirty = computed<boolean>(() => snapshot() !== openedWith.value)
 
+/*
+ * A picked file that the event already holds under the same name is refused rather than stored beside it:
+ * two records nobody can tell apart help nobody, and only the person picking knows which one they meant.
+ * Files marked for removal do not count, so replacing a file is take the old one off and add the new one.
+ */
+const duplicateWarning = computed<string>(() =>
+  collisionMessage(keptFiles.value, newFiles.value, null, 'This event'),
+)
+
+/*
+ * Values the event already holds under keys nothing declares. Nothing new can be written under such a key,
+ * but what is already there has to stay visible, so the panel is opened for them even when this industry
+ * has declared no event field at all.
+ */
+const legacyCount = computed<number>(() => {
+  const declared = new Set(eventFields.value.map((field) => field.key))
+
+  return Object.keys(values.value).filter((key) => !declared.has(key)).length
+})
+
 const blockedReason = computed<string>(() => {
   if (name.value.trim().length === 0) {
     return NAME_MISSING
+  }
+
+  if (duplicateWarning.value.length > 0) {
+    return DUPLICATE_FILES
   }
 
   if (!isDirty.value) {
@@ -294,24 +372,47 @@ const blockedReason = computed<string>(() => {
 
 const canSave = computed<boolean>(() => blockedReason.value.length === 0)
 
+const asks = (field: OptionalEventField): boolean => askedFields.value.includes(field)
+
 const fill = async (): Promise<void> => {
   name.value = props.event.name
   referenceId.value = props.event.reference_id
-  platform.value = props.event.platform
+  platforms.value = [...props.event.platforms]
   status.value = props.event.status
   experimentResult.value = props.event.experiment_result
   eventDate.value = toDateInput(props.event.event_date)
   notes.value = props.event.notes
   values.value = toValueMap(props.event.metadata)
+  valueTypes.value = toValueTypeMap(props.event.metadata)
+  keptFiles.value = [...props.event.additional_files]
   newFiles.value = []
   reason.value = ''
-  openedWith.value = snapshot()
 
   try {
-    fields.value = await listFields({ scope: 'event', industry: props.event.industry })
+    const [declaredPlatforms, types, declaredFields] = await Promise.all([
+      listPlatforms(props.event.industry),
+      listEventTypes(props.event.industry),
+      listFields({ scope: 'event', industry: props.event.industry }),
+    ])
+    platformOptions.value = declaredPlatforms
+    eventFields.value = declaredFields
+    /*
+     * Which built in fields are on the form is decided by the types the event was filed under, so an event
+     * of several types is asked for everything any one of them asks for.
+     */
+    const keys = new Set(props.event.event_type.map((reference) => reference.name))
+    askedFields.value = [
+      ...new Set(
+        types
+          .filter((candidate) => keys.has(candidate.name))
+          .flatMap((candidate) => candidate.fields),
+      ),
+    ]
   } catch (error) {
     reportError(error)
   }
+
+  openedWith.value = snapshot()
 }
 
 const close = () => {
@@ -342,13 +443,14 @@ const submit = async (): Promise<void> => {
       reason: reason.value.trim(),
       name: name.value.trim(),
       reference_id: referenceId.value.trim(),
-      platform: platform.value,
+      platforms: [...platforms.value],
       status: status.value,
       experiment_result: experimentResult.value,
       event_date: toIsoDate(eventDate.value),
       notes: notes.value,
-      additional_files: [...props.event.additional_files, ...uploaded],
-      metadata: toMetadataAttributes(values.value),
+      /* What survives the edit plus what was just added, which is how a removal reaches the service at all. */
+      additional_files: [...keptFiles.value, ...uploaded],
+      metadata: toMetadataAttributes(values.value, valueTypes.value),
     })
     notify('The event was updated', 'success')
     emit('saved', updated)
@@ -432,5 +534,16 @@ watch(
 .edit-event__blocked {
   font-size: 0.8125rem;
   opacity: 0.7;
+}
+
+.edit-event__files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.edit-event__duplicate {
+  font-size: 0.8125rem;
+  color: rgb(var(--v-theme-error));
 }
 </style>

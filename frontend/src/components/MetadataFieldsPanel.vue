@@ -1,8 +1,8 @@
 <template>
   <!--
-    The one place metadata is filled in, wherever it is being filled in: the declared fields of the schema
-    first, and underneath them the room to record something the schema never anticipated. Both end up in the
-    same value map, and both are compared field by field in the edit history.
+    The one place metadata is filled in, wherever it is being filled in. It reads as the two halves the
+    schema describes: the fields of the object itself, and underneath them the additional data, which the
+    schema declares key by key exactly as it declares the half above it.
   -->
   <section class="metadata-panel">
     <header class="metadata-panel__head">
@@ -25,15 +25,15 @@
         :key="field.id"
         :field="field"
         :model-value="modelValue[field.key] ?? null"
-        @update:model-value="patch(field.key, $event)"
+        @update:model-value="patch(field, $event)"
       />
     </div>
 
     <p
-      v-else-if="fields.length === 0"
+      v-else-if="ownFields.length === 0"
       class="metadata-panel__empty"
     >
-      No metadata fields are declared for this yet. Declare them on the Schema page, or record one below.
+      {{ NOTHING_DECLARED }}
     </p>
 
     <p
@@ -43,63 +43,83 @@
       None of the declared fields apply to what has been filled in so far.
     </p>
 
-    <div class="metadata-panel__custom">
-      <div class="metadata-panel__custom-head">
-        <span class="metadata-panel__custom-title">Additional metadata</span>
-        <v-btn
-          size="x-small"
-          variant="text"
-          prepend-icon="mdi-plus"
-          @click="addCustom"
-        >
-          ADD FIELD
-        </v-btn>
+    <div class="metadata-panel__additional">
+      <span class="metadata-panel__additional-title">Additional data</span>
+
+      <!--
+        The declared half of the additional data. Declaring these keys is what makes two people describing
+        the same kind of entity write the same thing, so they are asked for exactly like any other field.
+        A key invented on the spot used to be accepted here too, which is where a column nobody remembered
+        creating came from - so the block is a form now rather than a blank sheet.
+      -->
+      <div
+        v-if="visibleAdditionalFields.length > 0"
+        class="metadata-panel__grid"
+      >
+        <DynamicFieldInput
+          v-for="field in visibleAdditionalFields"
+          :key="field.id"
+          :field="field"
+          :model-value="modelValue[field.key] ?? null"
+          @update:model-value="patch(field, $event)"
+        />
       </div>
 
       <p
-        v-if="customEntries.length === 0"
+        v-else
         class="metadata-panel__empty"
       >
-        Anything recorded here is stored and shown alongside the declared fields.
+        {{ additionalFields.length > 0 ? NONE_APPLY : NOTHING_DECLARED }}
       </p>
 
+      <!--
+        Values that reached this object under a key no declaration covers - written before the rule existed,
+        or by a script. They are shown rather than dropped, because an edit must never silently lose what is
+        already stored, and they are read only because there is no declaration to measure a new value
+        against. Taking one off is the way out, and declaring the field for it is the way to keep it.
+      -->
       <div
-        v-for="entry in customEntries"
-        :key="entry.id"
-        class="metadata-panel__custom-row"
+        v-if="legacyEntries.length > 0"
+        class="metadata-panel__legacy"
       >
-        <v-text-field
-          :model-value="entry.key"
-          label="Key"
-          density="compact"
-          hide-details
-          @update:model-value="renameCustom(entry, $event)"
-        />
-        <v-text-field
-          :model-value="String(modelValue[entry.key] ?? '')"
-          label="Value"
-          density="compact"
-          hide-details
-          @update:model-value="patch(entry.key, $event)"
-        />
-        <v-btn
-          icon="mdi-close"
-          size="x-small"
-          variant="text"
-          :aria-label="`Remove ${entry.key}`"
-          @click="removeCustom(entry)"
-        />
+        <p class="metadata-panel__legacy-head">
+          <v-icon
+            size="x-small"
+            icon="mdi-alert-outline"
+          />
+          Recorded under keys nothing declares. Declare them on the Schema page to keep filling them in, or
+          take them off here.
+        </p>
+        <div
+          v-for="entry in legacyEntries"
+          :key="entry.key"
+          class="metadata-panel__legacy-row"
+        >
+          <code class="metadata-panel__legacy-key">{{ entry.key }}</code>
+          <span class="metadata-panel__legacy-value">{{ entry.display }}</span>
+          <v-btn
+            size="x-small"
+            variant="text"
+            :aria-label="`Remove ${entry.key}`"
+            @click="removeLegacy(entry.key)"
+          >
+            REMOVE
+          </v-btn>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <script lang="ts">
-import type { JsonValue } from '@/models/common'
+import type { FieldType, JsonValue } from '@/models/common'
+import { EMPTY_PLACEHOLDER } from '@skyscanner/sky-ui'
 import type { FieldDefinition } from '@/models/field'
 
 interface Props {
   modelValue: Record<string, JsonValue>
+  /** The type every value was recorded under, which a value stored before its declaration carries with it. */
+  types?: Record<string, FieldType>
   fields: FieldDefinition[]
   title?: string
   /**
@@ -112,6 +132,7 @@ interface Props {
 
 interface Emits {
   (event: 'update:modelValue', value: Record<string, JsonValue>): void
+  (event: 'update:types', value: Record<string, FieldType>): void
 }
 
 /**
@@ -128,39 +149,45 @@ type FieldFilter = (
   context?: Record<string, JsonValue>,
 ) => FieldDefinition[]
 
-/**
- * One row of the free form part of the panel.
- *
- * The row keeps an identity of its own rather than being keyed by the key the user is typing: a row keyed
- * by its own contents loses focus on every keystroke, because renaming the key replaces the row.
- */
-interface CustomEntry {
-  id: number
+/** One value stored under a key no declaration covers, as the panel reads it back. */
+interface LegacyEntry {
   key: string
+  display: string
 }
+
+const NOTHING_DECLARED =
+  'No field is declared for this yet. Declare one on the Schema page and it is asked for here.'
+
+const NONE_APPLY = 'None of the declared fields apply to what has been filled in so far.'
 </script>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 
 import DynamicFieldInput from '@/components/DynamicFieldInput.vue'
 import { applicableFields } from '@/utils/dependencies'
 
 const props = withDefaults(defineProps<Props>(), {
   title: 'Metadata fields',
+  types: () => ({}),
   context: () => ({}),
 })
 const emit = defineEmits<Emits>()
 
-const customEntries = ref<CustomEntry[]>([])
-let nextId = 0
+const ownFields = computed<FieldDefinition[]>(() => props.fields.filter((field) => !field.additional))
 
-const declaredKeys = computed<string[]>(() => props.fields.map((field) => field.key))
+const additionalFields = computed<FieldDefinition[]>(() => props.fields.filter((field) => field.additional))
+
+const declaredKeys = computed<Set<string>>(() => new Set(props.fields.map((field) => field.key)))
 
 const filterFields: FieldFilter = applicableFields
 
 const visibleFields = computed<FieldDefinition[]>(() =>
-  filterFields(props.fields, props.modelValue, props.context),
+  filterFields(ownFields.value, props.modelValue, props.context),
+)
+
+const visibleAdditionalFields = computed<FieldDefinition[]>(() =>
+  filterFields(additionalFields.value, props.modelValue, props.context),
 )
 
 const filledCount = computed<number>(
@@ -170,61 +197,38 @@ const filledCount = computed<number>(
     ).length,
 )
 
-const patch = (key: string, value: JsonValue) => {
-  emit('update:modelValue', { ...props.modelValue, [key]: value })
-}
-
-const addCustom = () => {
-  nextId += 1
-  customEntries.value = [...customEntries.value, { id: nextId, key: '' }]
-}
-
-/**
- * Move a value from the key it was recorded under to the one the user is now typing.
- */
-const renameCustom = (entry: CustomEntry, key: string) => {
-  const values = { ...props.modelValue }
-  const carried = values[entry.key]
-  delete values[entry.key]
-  if (key.length > 0) {
-    values[key] = carried ?? ''
+/** Render one stored value as the single line the read only row shows. */
+const describe = (value: JsonValue): string => {
+  if (value === null || value === undefined || value === '') {
+    return EMPTY_PLACEHOLDER
   }
-  entry.key = key
-  emit('update:modelValue', values)
+
+  return typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 
-const removeCustom = (entry: CustomEntry) => {
-  const values = { ...props.modelValue }
-  delete values[entry.key]
-  customEntries.value = customEntries.value.filter((candidate) => candidate.id !== entry.id)
-  emit('update:modelValue', values)
-}
+const legacyEntries = computed<LegacyEntry[]>(() =>
+  Object.entries(props.modelValue)
+    .filter(([key]) => !declaredKeys.value.has(key))
+    .map(([key, value]) => ({ key, display: describe(value) })),
+)
 
 /*
- * Values that arrived from a stored object under a key the schema does not declare are shown as free form
- * rows, so that editing an entity never silently drops what a script wrote into it.
+ * The type a value is stored under is the type its declaration names, rather than something chosen beside
+ * the value, which is what makes a number come back a number however the input handed it over.
  */
-watch(
-  () => [props.modelValue, props.fields] as const,
-  () => {
-    const undeclared = Object.keys(props.modelValue).filter((key) => !declaredKeys.value.includes(key))
-    const known = customEntries.value.map((entry) => entry.key)
-    const missing = undeclared.filter((key) => !known.includes(key))
-    if (missing.length === 0) {
-      return
-    }
+const patch = (field: FieldDefinition, value: JsonValue) => {
+  emit('update:modelValue', { ...props.modelValue, [field.key]: value })
+  emit('update:types', { ...props.types, [field.key]: field.type })
+}
 
-    customEntries.value = [
-      ...customEntries.value,
-      ...missing.map((key) => {
-        nextId += 1
-
-        return { id: nextId, key }
-      }),
-    ]
-  },
-  { immediate: true, deep: true },
-)
+const removeLegacy = (key: string) => {
+  const values = { ...props.modelValue }
+  const types = { ...props.types }
+  delete values[key]
+  delete types[key]
+  emit('update:modelValue', values)
+  emit('update:types', types)
+}
 </script>
 
 <style scoped>
@@ -267,36 +271,55 @@ watch(
   opacity: 0.7;
 }
 
-.metadata-panel__custom {
+.metadata-panel__additional {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.75rem;
   border-block-start: 0.0625rem solid rgb(var(--v-theme-app-border));
   padding-block-start: 0.875rem;
 }
 
-.metadata-panel__custom-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.metadata-panel__custom-title {
+.metadata-panel__additional-title {
   font-size: 0.875rem;
   font-weight: 600;
 }
 
-.metadata-panel__custom-row {
+.metadata-panel__legacy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  border: 0.0625rem dashed rgb(var(--v-theme-app-border));
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.metadata-panel__legacy-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  opacity: 0.75;
+}
+
+/* One stored value reads across the row: the key it was written under and what it holds. */
+.metadata-panel__legacy-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
   align-items: center;
   gap: 0.5rem;
+  font-size: 0.8125rem;
 }
 
-@media (max-width: 40rem) {
-  .metadata-panel__custom-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+.metadata-panel__legacy-key,
+.metadata-panel__legacy-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 48rem) {
+  .metadata-panel__legacy-row {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 }
 </style>

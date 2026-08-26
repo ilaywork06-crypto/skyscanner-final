@@ -1,19 +1,24 @@
 <template>
   <div class="detail-row">
     <!--
-      The panel reads against two different industries: the one the event belongs to, which decides the fields
-      it shows, and the one the inventory is currently narrowed to, which the panel gets from the table because
-      an expanded row is the only place that knows it.
+      The panel is measured through a wrapper of its own rather than through the row it sits in: the row is
+      given a height, so measuring it would only report back the height it was already given. This grows with
+      what is inside it and nothing else, which is what makes it worth measuring.
     -->
-    <EventDetailPanel
-      v-if="parentRow !== undefined"
-      :event-id="parentId"
-      :event-row="parentRow"
-      :industry="industry"
-      :industry-filter="readContext(props.params).industryFilter"
-      @open="onOpen"
-      @download="onDownload"
-    />
+    <div
+      ref="content"
+      class="detail-row__content"
+    >
+      <!-- The industry of the event is what decides the schema every entity table below is rendered with. -->
+      <EventDetailPanel
+        v-if="parentRow !== undefined"
+        :event-id="parentId"
+        :event-row="parentRow"
+        :industry="industry"
+        @open="onOpen"
+        @download="onDownload"
+      />
+    </div>
   </div>
 </template>
 
@@ -28,7 +33,7 @@ interface Props {
 </script>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import EventDetailPanel from '@/components/EventDetailPanel.vue'
 import { provideSearchTerm, readContext } from '@/utils/grid-context'
@@ -61,12 +66,49 @@ const onOpen = (artifact: Artifact) => {
 const onDownload = (artifact: Artifact) => {
   readContext(props.params).downloadArtifact(artifact)
 }
+
+/*
+ * The panel says how tall it turned out to be, and keeps saying so: it loads its entities after it is first
+ * drawn, a group grows when an entity is added to it, and a row of it grows when its attributes are opened.
+ * Every one of those changes the height the row underneath ought to have.
+ */
+const content = ref<HTMLElement | null>(null)
+let observer: ResizeObserver | null = null
+
+const report = () => {
+  const element = content.value
+  if (element === null || parentId.value.length === 0) {
+    return
+  }
+
+  readContext(props.params).reportDetailHeight(parentId.value, element.getBoundingClientRect().height)
+}
+
+onMounted(() => {
+  const element = content.value
+  if (element === null) {
+    return
+  }
+
+  observer = new ResizeObserver(report)
+  observer.observe(element)
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = null
+})
 </script>
 
 <style>
 .detail-row {
   inline-size: 100%;
   block-size: 100%;
+  /* A panel taller than the ceiling a single row may take scrolls inside itself rather than being cut off. */
   overflow: auto;
+}
+
+.detail-row__content {
+  inline-size: 100%;
 }
 </style>

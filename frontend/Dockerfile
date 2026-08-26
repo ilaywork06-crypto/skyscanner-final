@@ -16,6 +16,13 @@ COPY frontend ./frontend
 ARG VITE_API_BASE_URL=/api
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
+# Where the coordinate field draws its map from. The system is meant to run behind a firewall, so no tile
+# server is assumed: without one the field still takes a point, it just takes it as three typed numbers.
+ARG VITE_MAP_TILE_URL=
+ENV VITE_MAP_TILE_URL=$VITE_MAP_TILE_URL
+ARG VITE_MAP_ATTRIBUTION=
+ENV VITE_MAP_ATTRIBUTION=$VITE_MAP_ATTRIBUTION
+
 RUN npm run build --workspace frontend
 
 

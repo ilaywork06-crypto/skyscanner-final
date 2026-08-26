@@ -38,6 +38,7 @@ class CellRenderer(str, Enum):
     BOOLEAN = "BooleanCellRenderer"
     TEXT = "TextCellRenderer"
     EXPAND = "ExpandCellRenderer"
+    COORDINATE = "CoordinateCellRenderer"
 
 
 # ----- CONSTS ----- #
@@ -53,6 +54,8 @@ FIELD_TYPE_FILTERS: dict[FieldType, GridFilter | bool] = {
     FieldType.ENUM: GridFilter.TEXT,
     FieldType.FILE: False,
     FieldType.JSON: False,
+    # A point is three numbers at once, so none of the single value filters can express a question about it.
+    FieldType.COORDINATE: False,
 }
 
 FIELD_TYPE_RENDERERS: dict[FieldType, CellRenderer] = {
@@ -66,6 +69,7 @@ FIELD_TYPE_RENDERERS: dict[FieldType, CellRenderer] = {
     FieldType.ENUM: CellRenderer.CHIP,
     FieldType.FILE: CellRenderer.FILES,
     FieldType.JSON: CellRenderer.JSON,
+    FieldType.COORDINATE: CellRenderer.COORDINATE,
 }
 
 DEFAULT_MIN_WIDTH: float = 120

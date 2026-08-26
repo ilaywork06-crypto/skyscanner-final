@@ -60,16 +60,24 @@
           </span>
         </v-btn>
 
+        <!--
+          How the system is configured and who is looking at it are two different questions, and they used to
+          share one button: the industries, the schema and the types all hung off the account icon, where
+          nobody would look for them. The cog now holds everything that shapes the system, and the account
+          icon is left to the person - which is what it will hold once there is an identity to show.
+        -->
         <v-menu location="bottom end">
           <template #activator="{ props: activator }">
             <v-btn
               v-bind="activator"
-              icon="mdi-account-circle-outline"
+              icon="mdi-cog"
               variant="text"
-              aria-label="Account"
+              aria-label="Settings"
+              title="Settings"
             />
           </template>
           <v-list density="compact">
+            <v-list-subheader>Settings</v-list-subheader>
             <!--
               Subscriptions are hidden behind their flag rather than taken out of the menu, so the entry
               comes back with the feature instead of having to be written a second time.
@@ -94,6 +102,32 @@
               title="Types"
               prepend-icon="mdi-shape-outline"
               to="/types"
+            />
+          </v-list>
+        </v-menu>
+
+        <v-menu location="bottom end">
+          <template #activator="{ props: activator }">
+            <v-btn
+              v-bind="activator"
+              icon="mdi-account-circle-outline"
+              variant="text"
+              aria-label="Account"
+              title="Account"
+            />
+          </template>
+          <!--
+            The services read the identity out of the headers the reverse proxy injects and never authenticate
+            anybody themselves, so there is nothing of the person to show here yet. The menu says so rather
+            than being empty, and it is where the settings of the account itself will go.
+          -->
+          <v-list density="compact">
+            <v-list-subheader>Account</v-list-subheader>
+            <v-list-item
+              title="No account settings yet"
+              subtitle="The system reads your identity from the proxy that signed you in."
+              prepend-icon="mdi-account-outline"
+              disabled
             />
           </v-list>
         </v-menu>

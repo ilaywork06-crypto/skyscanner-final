@@ -34,6 +34,7 @@ class IndustryRepository(BaseRepository[IndustryDocument]):
         """
         Create the index that keeps an industry key unique.
         """
+        await super().ensure_indexes()
         await self.create_indexes(
             [IndexModel([("key", ASCENDING)], unique=True, name="industry_key_unique")],
         )

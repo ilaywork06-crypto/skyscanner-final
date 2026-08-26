@@ -19,6 +19,7 @@ from skyscanner_models.common import UserContext
 from skyscanner_models.enums import Permission
 
 from events_service.constants import EVENTS_COLLECTION
+from events_service.repositories.base_repository import NOT_DELETED
 from events_service.repositories.counter_repository import CounterRepository
 from events_service.repositories.event_repository import EventRepository
 from events_service.repositories.field_repository import FieldRepository
@@ -326,7 +327,10 @@ def get_grid_service(
     return GridService(
         event_repository=event_repository,
         field_service=field_service,
-        introspector=SchemaIntrospector(collection=provider.collection(EVENTS_COLLECTION)),
+        introspector=SchemaIntrospector(
+            collection=provider.collection(EVENTS_COLLECTION),
+            base_filter=NOT_DELETED,
+        ),
     )
 
 
