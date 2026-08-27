@@ -15,12 +15,17 @@ from skyscanner_models.enums import FieldType
 
 class GridFilter(str, Enum):
     """
-    The AG Grid community filter components that a generated column may declare.
+    The filter components a generated column may declare - the ones AG Grid ships with, and the one we do.
+
+    A column whose values are a declared vocabulary is not filtered by typing a key from memory: the reader
+    picks from the list the vocabulary already is. The community build of the grid carries no such filter, so
+    the web client registers one and the backend names it here exactly as it names the built in ones.
     """
 
     TEXT = "agTextColumnFilter"
     NUMBER = "agNumberColumnFilter"
     DATE = "agDateColumnFilter"
+    SET = "SetColumnFilter"
 
 
 class CellRenderer(str, Enum):
@@ -39,6 +44,7 @@ class CellRenderer(str, Enum):
     TEXT = "TextCellRenderer"
     EXPAND = "ExpandCellRenderer"
     COORDINATE = "CoordinateCellRenderer"
+    OPEN_EVENT = "OpenEventCellRenderer"
 
 
 # ----- CONSTS ----- #
@@ -75,3 +81,8 @@ FIELD_TYPE_RENDERERS: dict[FieldType, CellRenderer] = {
 DEFAULT_MIN_WIDTH: float = 120
 DEFAULT_FLEX: float = 1
 WIDE_MIN_WIDTH: float = 180
+
+# The class a column of bookkeeping stamps carries, which is what sets it apart from the values a reader is
+# actually here for: the moment sits at the end of its column, quieter than the columns around it.
+STAMP_CELL_CLASS: str = "sky-cell--stamp"
+STAMP_HEADER_CLASS: str = "sky-header--stamp"

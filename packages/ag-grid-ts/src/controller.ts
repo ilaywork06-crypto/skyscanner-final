@@ -130,9 +130,27 @@ const createGridController = (input: GridControllerInput): GridController => {
     }
   }
 
+  /**
+   * Take the ordering and the restrictions the table is currently running, and reload the rows against them.
+   *
+   * A table raises these while it is being arranged as much as while it is being used - restoring a saved
+   * view, showing a column, rebuilding a header - and several of those raise it without anything having
+   * actually changed. Such a round is dropped: it would otherwise cost a full query for the answer the table
+   * is already showing, and it would throw a reader who was on page three back to page one for nothing.
+   */
   const applyGridModels = async (sortModel: SortModelItem[], filterModel: FilterModel): Promise<void> => {
-    sort.value = buildSortSpecifications(sortModel)
-    filters.value = buildFilterConditions(filterModel)
+    const requestedSort = buildSortSpecifications(sortModel)
+    const requestedFilters = buildFilterConditions(filterModel)
+    const unchanged =
+      JSON.stringify(requestedSort) === JSON.stringify(sort.value) &&
+      JSON.stringify(requestedFilters) === JSON.stringify(filters.value)
+
+    if (unchanged) {
+      return
+    }
+
+    sort.value = requestedSort
+    filters.value = requestedFilters
     page.value = 1
     await refreshRows()
   }

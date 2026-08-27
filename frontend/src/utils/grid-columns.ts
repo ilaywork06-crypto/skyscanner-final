@@ -60,6 +60,12 @@ const undeclaredColumn = (attribute: MetadataAttribute): GeneratedColumn => ({
   /* Nothing declared this key either - it is read straight off the value the row was written with. */
   discovered: true,
   industry: null,
+  /*
+   * Nothing declared the key, so nothing declared what it is allowed to hold either: a value read off a
+   * stored document has no vocabulary behind it and is therefore never offered as one to pick from.
+   */
+  filterOptions: [],
+  quickFilter: false,
 })
 
 /**

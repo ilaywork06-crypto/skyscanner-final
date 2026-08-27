@@ -9,8 +9,18 @@ import type { GeneratedColumn, GeneratedGridConfiguration, GridRow } from './typ
 
 type CellRendererRegistry = Record<string, Component>
 
+/**
+ * The filter components the client registers itself, keyed by the name the backend generates them under.
+ *
+ * The community build of the grid carries a filter for text, for numbers and for dates and nothing else, so
+ * a column whose values are a declared vocabulary - a platform, a status, an industry - is given a filter
+ * from here instead of a box to type a key into.
+ */
+type FilterComponentRegistry = Record<string, Component>
+
 interface ParseOptions {
   registry: CellRendererRegistry
+  filters?: FilterComponentRegistry
   hiddenColumns?: string[]
   visibleColumns?: string[]
 }
@@ -48,6 +58,8 @@ const parseColumn = (column: GeneratedColumn, options: ParseOptions): ColDef<Gri
     floatingFilter: column.floatingFilter,
     autoHeight: column.autoHeight,
     cellRendererParams: { ...EMPTY_RENDERER_PARAMS, ...column.cellRendererParams },
+    /* The vocabulary of the column travels to whatever filter it carries, which is what fills its list. */
+    filterParams: { options: column.filterOptions, headerName: column.headerName },
     /*
      * A header carries no tooltip of its own: it said the header again, which is the one thing already on
      * screen. A header too long for its column wraps instead, which is what the grid options ask for.
@@ -84,6 +96,15 @@ const parseColumn = (column: GeneratedColumn, options: ParseOptions): ColDef<Gri
     definition.cellRenderer = options.registry[column.cellRenderer]
   }
 
+  /*
+   * A filter the backend named and the client registered is handed over as the component itself; the built
+   * in names of the grid stay the strings they already are and resolve inside the grid.
+   */
+  const registered = typeof column.filter === 'string' ? options.filters?.[column.filter] : undefined
+  if (registered !== undefined) {
+    definition.filter = registered
+  }
+
   return definition
 }
 
@@ -95,5 +116,5 @@ const parseColumnDefinitions = (
   options: ParseOptions,
 ): ColDef<GridRow>[] => configuration.columns.map((column) => parseColumn(column, options))
 
-export type { CellRendererRegistry, ParseOptions }
+export type { CellRendererRegistry, FilterComponentRegistry, ParseOptions }
 export { parseColumnDefinitions }

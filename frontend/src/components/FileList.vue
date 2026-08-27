@@ -107,6 +107,15 @@ interface Props {
    * surfaces that were never searched leave this alone and the list renders its names untouched.
    */
   search?: string
+  /**
+   * Whether the folders the files were uploaded under are shown at all.
+   *
+   * A column that is already called RAW FILES has nothing to gain from a folder inside it called raw_files:
+   * the reader would have to open a folder to reach a list the column heading already named. The surfaces
+   * that hold every file of an object at once - the tree of the event page - keep the folders, because there
+   * the folder is the only thing telling one half of the files from the other.
+   */
+  flat?: boolean
 }
 
 interface Emits {
@@ -131,12 +140,17 @@ const props = withDefaults(defineProps<Props>(), {
   activeId: null,
   showUpload: false,
   search: '',
+  flat: false,
 })
 const emit = defineEmits<Emits>()
 
 const openFolders = ref<string[]>([])
 
 const groups = computed<FileGroup[]>(() => {
+  if (props.flat) {
+    return props.files.length === 0 ? [] : [{ name: '', files: props.files }]
+  }
+
   const byFolder = new Map<string, Artifact[]>()
   props.files.forEach((file) => {
     const key = file.folder ?? ''

@@ -35,6 +35,12 @@ interface FilterCondition {
   values: JsonValue[]
 }
 
+/** One value a column is known to be able to hold, offered by its filter instead of being typed by hand. */
+interface FilterOption {
+  value: string
+  label: string
+}
+
 interface GeneratedColumn {
   colId: string
   field: string
@@ -61,6 +67,10 @@ interface GeneratedColumn {
   /** Whether nobody declared this column and it was read off the stored documents instead. */
   discovered: boolean
   industry: string | null
+  /** The vocabulary the values of this column are drawn from, empty when they are not a vocabulary at all. */
+  filterOptions: FilterOption[]
+  /** Whether the column is worth offering as one of the quick filters above the table. */
+  quickFilter: boolean
 }
 
 interface GeneratedGridConfiguration {
@@ -90,6 +100,7 @@ interface GridRowsPage {
 export type {
   FilterCondition,
   FilterOperator,
+  FilterOption,
   GeneratedColumn,
   GeneratedGridConfiguration,
   GridRow,

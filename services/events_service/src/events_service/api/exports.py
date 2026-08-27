@@ -11,6 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
+from skyscanner_common.object_storage import content_disposition
 from skyscanner_models.common import UserContext
 from skyscanner_models.enums import Permission
 from skyscanner_models.grid import EventExportRequest
@@ -23,6 +24,7 @@ from events_service.services.export_service import ENTITY_MODE_SUMMARY
 
 ROUTER: APIRouter = APIRouter(prefix="/exports", tags=["exports"])
 CONTENT_DISPOSITION: str = "Content-Disposition"
+ATTACHMENT_DISPOSITION: str = "attachment"
 
 # ----- FUNCTIONS ----- #
 
@@ -58,7 +60,12 @@ async def export_events(
     return Response(
         content=body,
         media_type=media_type,
-        headers={CONTENT_DISPOSITION: f'attachment; filename="{file_name}"'},
+        headers={
+            CONTENT_DISPOSITION: content_disposition(
+                disposition=ATTACHMENT_DISPOSITION,
+                file_name=file_name,
+            ),
+        },
     )
 
 

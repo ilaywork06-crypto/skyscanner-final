@@ -26,6 +26,20 @@ const DATE_TIME_OPTIONS: Intl.DateTimeFormatOptions = {
   hour12: false,
 }
 
+/*
+ * The same moment written as short as it can be and still be read: two digit year, no seconds. It is what the
+ * bookkeeping columns of a table carry - created at, updated at - where the full form takes a hundred and
+ * ninety pixels of a row for the least interesting thing on it.
+ */
+const COMPACT_DATE_TIME_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: '2-digit',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+}
+
 const SIZE_UNITS: string[] = ['B', 'KB', 'MB', 'GB', 'TB']
 const SIZE_STEP = 1024
 const EMPTY_PLACEHOLDER = '—'
@@ -58,6 +72,21 @@ const formatDateTime = (value: string | null | undefined): string => {
   const moment = new Date(value)
 
   return Number.isNaN(moment.getTime()) ? EMPTY_PLACEHOLDER : moment.toLocaleString('en-GB', DATE_TIME_OPTIONS)
+}
+
+/**
+ * Render a moment as the shortest date and time that is still readable, in the time zone of the viewer.
+ */
+const formatCompactDateTime = (value: string | null | undefined): string => {
+  if (value === null || value === undefined || value.length === 0) {
+    return EMPTY_PLACEHOLDER
+  }
+
+  const moment = new Date(value)
+
+  return Number.isNaN(moment.getTime())
+    ? EMPTY_PLACEHOLDER
+    : moment.toLocaleString('en-GB', COMPACT_DATE_TIME_OPTIONS)
 }
 
 /**
@@ -141,6 +170,7 @@ const slugify = (value: string): string =>
 export {
   EMPTY_PLACEHOLDER,
   formatBytes,
+  formatCompactDateTime,
   formatDate,
   formatDateTime,
   humanizeKey,

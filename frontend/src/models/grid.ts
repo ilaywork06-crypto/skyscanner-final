@@ -2,7 +2,13 @@
  * The payloads of the generated tables, re-exported from the grid library so that pages import them from one place.
  */
 
-import type { GeneratedColumn, GeneratedGridConfiguration, GridRow, GridRowsPage } from '@skyscanner/ag-grid-ts'
+import type {
+  FilterOption,
+  GeneratedColumn,
+  GeneratedGridConfiguration,
+  GridRow,
+  GridRowsPage,
+} from '@skyscanner/ag-grid-ts'
 
 import type { Artifact } from './common'
 
@@ -29,6 +35,7 @@ export type {
   DetailGridRow,
   EventGridRow,
   FilesCellValue,
+  FilterOption,
   GeneratedColumn,
   GeneratedGridConfiguration,
   GridRow,

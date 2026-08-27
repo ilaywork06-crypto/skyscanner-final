@@ -16,15 +16,22 @@ from ag_grid_lib.configuration import build_grid_configuration
 from ag_grid_lib.datasource import resolve_path
 from ag_grid_lib.introspection import SchemaIntrospector
 from skyscanner_models.enums import FieldScope
-from skyscanner_models.grid import GridConfiguration, GridRowsRequest, GridRowsResponse
+from skyscanner_models.grid import FilterOption, GridConfiguration, GridRowsRequest, GridRowsResponse
 
 from events_service.constants import (
     ENTITY_BASE_COLUMNS,
+    ENTITY_TYPE_VOCABULARY,
     EVENT_BASE_COLUMNS,
+    EVENT_TYPE_VOCABULARY,
     FIXED_EVENT_KEYS,
+    INDUSTRY_VOCABULARY,
+    MODULE_VOCABULARY,
+    PLATFORM_VOCABULARY,
 )
 from events_service.documents import EntityDocument, EventDocument
 from events_service.repositories.event_repository import EventRepository
+from events_service.repositories.industry_repository import IndustryRepository
+from events_service.repositories.type_repository import TypeRepository
 from events_service.services.field_service import FieldService
 
 # ----- CONSTS ----- #
@@ -46,6 +53,8 @@ class GridService:
         event_repository: EventRepository,
         field_service: FieldService,
         introspector: SchemaIntrospector,
+        type_repository: TypeRepository,
+        industry_repository: IndustryRepository,
     ) -> None:
         """
         Bind the service to the sources of the columns and of the rows.
@@ -53,10 +62,14 @@ class GridService:
         :param event_repository: Persistence of the events the rows are read from.
         :param field_service: Owner of the declared dynamic schema.
         :param introspector: Reader of the keys that were written without a declaration.
+        :param type_repository: Persistence of the declared types and platforms a filter offers.
+        :param industry_repository: Persistence of the industries a filter offers.
         """
         self._event_repository = event_repository
         self._field_service = field_service
         self._introspector = introspector
+        self._type_repository = type_repository
+        self._industry_repository = industry_repository
 
     async def event_configuration(self, industry: str | None = None, discover: bool = True) -> GridConfiguration:
         """
@@ -83,6 +96,7 @@ class GridService:
             declared_fields=declared,
             industry=industry,
             default_sort_key=EVENT_SORT_KEY,
+            vocabularies=await self._event_vocabularies(industry=industry),
         )
 
     async def entity_configuration(
@@ -109,6 +123,7 @@ class GridService:
             declared_fields=declared,
             industry=industry,
             default_sort_key=ENTITY_SORT_KEY,
+            vocabularies=await self._entity_vocabularies(industry=industry),
         )
 
     async def event_rows(self, request: GridRowsRequest) -> GridRowsResponse:
@@ -127,6 +142,71 @@ class GridService:
             page_size=request.page_size,
             pages=ceil(total / request.page_size) if request.page_size else 0,
         )
+
+    async def _event_vocabularies(self, industry: str | None) -> dict[str, list[FilterOption]]:
+        """
+        Read the declared vocabularies the columns of the inventory are filtered by.
+
+        A reader narrowing the table to one platform should be handed the platforms rather than asked to
+        remember that "Rig A" is stored as `rig_a`, so the declarations behind those columns travel with the
+        table. Filtering by an industry narrows the platforms and the types to the ones it was offered,
+        exactly as the create wizard narrows them.
+
+        :param industry: Industry the table is generated for, empty for the shared view of every industry.
+        :return: The values of each vocabulary the built in columns name.
+        """
+        platforms = await self._type_repository.list_platforms(industry=industry)
+        event_types = await self._type_repository.list_event_types(industry=industry)
+        industries = await self._industry_repository.list_all()
+
+        return {
+            # An event stores the keys of the platforms it ran on and the names of the types it was filed
+            # under, so each vocabulary is keyed by whatever its own column actually holds.
+            PLATFORM_VOCABULARY: [
+                FilterOption(value=document.key, label=document.name) for document in platforms
+            ],
+            EVENT_TYPE_VOCABULARY: [
+                FilterOption(value=document.name, label=document.name) for document in event_types
+            ],
+            INDUSTRY_VOCABULARY: [
+                FilterOption(value=document.key, label=document.name) for document in industries
+            ],
+        }
+
+    async def _entity_vocabularies(self, industry: str | None) -> dict[str, list[FilterOption]]:
+        """
+        Read the declared vocabularies the columns of an entity table are filtered by.
+
+        :param industry: Industry the table is generated for, empty for the shared view of every industry.
+        :return: The values of each vocabulary the built in columns name.
+        """
+        entity_types = await self._type_repository.list_entity_types(industry=industry)
+        modules = await self._modules_of(industry=industry)
+
+        return {
+            ENTITY_TYPE_VOCABULARY: [
+                FilterOption(value=document.name, label=document.name) for document in entity_types
+            ],
+            MODULE_VOCABULARY: [FilterOption(value=module, label=module) for module in modules],
+        }
+
+    async def _modules_of(self, industry: str | None) -> list[str]:
+        """
+        Read the modules an entity may name, which is a vocabulary each industry declares for itself.
+
+        The shared view of every industry is offered every declared module, since an entity of any of them
+        may appear in it.
+
+        :param industry: Industry the modules are read for, empty for the shared view of every industry.
+        :return: The declared modules, each of them named once.
+        """
+        documents = await self._industry_repository.list_all()
+        matching = [document for document in documents if industry is None or document.key == industry]
+        collected: list[str] = []
+        for document in matching:
+            collected.extend(module for module in document.modules if module not in collected)
+
+        return collected
 
     async def distinct_values(self, key: str) -> list[str]:
         """
@@ -169,7 +249,11 @@ def entity_row(document: EntityDocument, event_id: str) -> dict[str, Any]:
     row: dict[str, Any] = to_jsonable_python(document.to_response(event_id=event_id).model_dump())
     row["object_type_name"] = document.object_type_name
     row["object_type_key"] = document.object_type_key
-    row["files"] = row["raw_files"] + row["parsed_files"] + row["parsed_additional_files"]
+    # Two columns rather than one folder tree: what came in raw, and everything the parsing produced. The
+    # single list every file used to be read out of is kept beside them, because a saved view or a script
+    # may still be addressing it.
+    row["parsed_all_files"] = row["parsed_files"] + row["parsed_additional_files"]
+    row["files"] = row["raw_files"] + row["parsed_all_files"]
     row[DYNAMIC_FIELD_PREFIX] = to_jsonable_python(document.data)
 
     return row

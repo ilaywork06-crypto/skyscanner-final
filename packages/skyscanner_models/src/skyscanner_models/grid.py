@@ -15,6 +15,21 @@ from skyscanner_models.query import SearchQuery, SortSpecification
 # ----- CLASSES ----- #
 
 
+class FilterOption(BaseModel):
+    """
+    One value a column is known to be able to hold, offered by its filter instead of being typed by hand.
+
+    A platform, an industry, a status or a declared enum is a vocabulary somebody wrote down, so the filter
+    of such a column can hand the reader the list rather than asking them to remember the spelling of a key.
+    The value is what the query is built with and the label is what the reader picks off the list.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
+
+    value: str = Field(description="Value the filter compares the column against")
+    label: str = Field(description="Label the value is offered under")
+
+
 class ColumnDefinition(BaseModel):
     """
     One generated AG Grid column definition, serialised with the camel case names the grid expects.
@@ -55,6 +70,15 @@ class ColumnDefinition(BaseModel):
         default=None,
         description="Industry owning the column, empty when the column is shared",
     )
+    # A column whose values are a declared vocabulary hands that vocabulary over with itself, so the filter
+    # of the column and the quick filters above the table both offer it rather than each inventing a list.
+    filter_options: list[FilterOption] = Field(
+        default_factory=list,
+        description="Values the column is known to hold, offered by its filter instead of being typed",
+    )
+    # Whether the column is worth offering as a quick filter above the table, which is a short row of the
+    # few vocabularies a reader narrows by every day rather than every column that happens to have options.
+    quick_filter: bool = Field(default=False, description="Whether the column is offered as a quick filter")
 
 
 class GridConfiguration(BaseModel):

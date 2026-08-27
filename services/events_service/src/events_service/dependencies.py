@@ -315,6 +315,8 @@ def get_grid_service(
     provider: ProviderDependency,
     event_repository: EventRepositoryDependency,
     field_service: FieldServiceDependency,
+    type_repository: TypeRepositoryDependency,
+    industry_repository: IndustryRepositoryDependency,
 ) -> GridService:
     """
     Build the generator of the tables for one request.
@@ -322,6 +324,8 @@ def get_grid_service(
     :param provider: Owner of the shared motor client, used to inspect the stored documents.
     :param event_repository: Persistence of the events the rows are read from.
     :param field_service: Owner of the declared dynamic schema.
+    :param type_repository: Persistence of the declared types and platforms the filters offer.
+    :param industry_repository: Persistence of the industries the filters offer.
     :return: The service that generates the tables.
     """
     return GridService(
@@ -331,6 +335,8 @@ def get_grid_service(
             collection=provider.collection(EVENTS_COLLECTION),
             base_filter=NOT_DELETED,
         ),
+        type_repository=type_repository,
+        industry_repository=industry_repository,
     )
 
 

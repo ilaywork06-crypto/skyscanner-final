@@ -18,6 +18,7 @@ export { DEFAULT_FILE_ICON, fileIcon } from './utils/file-icons'
 export {
   EMPTY_PLACEHOLDER,
   formatBytes,
+  formatCompactDateTime,
   formatDate,
   formatDateTime,
   humanizeKey,

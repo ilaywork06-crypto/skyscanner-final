@@ -104,17 +104,20 @@
               class="wizard__label"
               for="event-brief"
             >
-              <span class="wizard__required">*</span>Event Brief
+              Event Brief
               <SkyInfoIcon label="What Event Brief means">
                 The short line this event is listed and searched by, so write something you will recognise
-                later - what happened, in a few words. It is required: an event without a brief is one nobody
-                can tell apart from the next one.
+                later - what happened, in a few words. Leaving it empty is fine: the system then writes one
+                out of what this event already says about itself - its type, the platforms it ran on, its
+                industry and its date - and you can change it later on the event page like any other value.
               </SkyInfoIcon>
             </label>
             <v-text-field
               id="event-brief"
               v-model="name"
-              placeholder="Enter event brief"
+              :placeholder="generatedBrief"
+              persistent-hint
+              :hint="name.trim().length === 0 ? BRIEF_HINT : ''"
             />
           </div>
 
@@ -386,6 +389,7 @@ import { useIndustries } from '@/composables/useIndustries'
 import { createEvent } from '@/requests/events'
 import { listEntityTypes, listEventTypes, listFields, listPlatforms } from '@/requests/schema'
 import { uploadArtifacts } from '@/requests/storage'
+import { buildEventBriefPreview } from '@/utils/brief'
 import { toMetadataAttributes } from '@/utils/rows'
 
 /*
@@ -397,6 +401,9 @@ const STEP_LABELS: string[] = ['Data', 'Add Entities']
 const STEP_TITLES: string[] = ['Create An Event', 'Add Entities To The Event']
 const STATUS_OPTIONS: EventStatus[] = ['draft', 'raw', 'parsed', 'partial', 'failed', 'archived']
 const RESULT_OPTIONS: ExperimentResult[] = ['successful', 'partial', 'failed']
+
+/** What the brief field says while it is empty, so that nobody wonders whether they forgot something. */
+const BRIEF_HINT = 'Left empty, this brief is written for you'
 
 const props = withDefaults(defineProps<Props>(), { defaultIndustry: null })
 const emit = defineEmits<Emits>()
@@ -516,17 +523,31 @@ const fileCount = (entity: EntityDraft): number =>
 
 const canContinue = computed<boolean>(() => {
   if (step.value === 1) {
-    /* The brief is what the event is listed and searched by, so an event without one cannot be started. */
-    return (
-      eventTypeKey.value !== null &&
-      industry.value !== null &&
-      platforms.value.length > 0 &&
-      name.value.trim().length > 0
-    )
+    /*
+     * The brief is deliberately not among these. It is what the event is listed and searched by, but a user
+     * who has nothing to add beyond what the form already says should not be held at the first step over it:
+     * the events service writes one out of the very fields above instead.
+     */
+    return eventTypeKey.value !== null && industry.value !== null && platforms.value.length > 0
   }
 
   return true
 })
+
+/**
+ * The brief the events service is about to write, shown in place of the empty field so that a user leaving it
+ * alone can see what their event will be called rather than finding out after it is stored.
+ */
+const generatedBrief = computed<string>(() =>
+  buildEventBriefPreview({
+    typeNames: eventTypes.value
+      .filter((candidate) => candidate.key === eventTypeKey.value)
+      .map((candidate) => candidate.name),
+    platforms: [...platforms.value],
+    industry: industry.value,
+    eventDate: eventDate.value,
+  }),
+)
 
 const loadSchema = async (): Promise<void> => {
   try {
@@ -737,7 +758,8 @@ const submit = async (): Promise<void> => {
     })
     const entities = await buildEntityRequests()
     const created = await createEvent({
-      name: name.value.trim(),
+      /* Nothing rather than an empty line: an empty name is a name, and the service would store it. */
+      name: name.value.trim().length > 0 ? name.value.trim() : null,
       reference_id: referenceId.value.trim(),
       event_type_keys: [eventTypeKey.value],
       industry: industry.value,

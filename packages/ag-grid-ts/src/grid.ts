@@ -13,13 +13,14 @@ import {
 } from 'ag-grid-community'
 
 import { applyThemeCompatibility } from './compatibility'
-import type { CellRendererRegistry } from './parse'
+import type { CellRendererRegistry, FilterComponentRegistry } from './parse'
 import { parseColumnDefinitions } from './parse'
 import type { GeneratedGridConfiguration, GridRow } from './types'
 
 interface GridOptionsInput {
   configuration: GeneratedGridConfiguration
   registry: CellRendererRegistry
+  filters?: FilterComponentRegistry
   visibleColumns?: string[]
   detailRowHeight?: number
   onRowClicked?: (row: GridRow) => void
@@ -105,6 +106,7 @@ const buildGridOptions = (input: GridOptionsInput): GridOptions<GridRow> => {
 
   const columnDefs: ColDef<GridRow>[] = parseColumnDefinitions(input.configuration, {
     registry: input.registry,
+    filters: input.filters,
     visibleColumns: input.visibleColumns,
   })
 

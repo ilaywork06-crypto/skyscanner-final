@@ -17,16 +17,19 @@
               class="edit-event__label"
               for="edit-brief"
             >
-              <span class="edit-event__required">*</span>Event Brief
+              Event Brief
               <SkyInfoIcon label="What Event Brief means">
-                The short line this event is listed and searched by. It cannot be left empty: an event
-                without a brief is one nobody can tell apart from the next one.
+                The short line this event is listed and searched by. Clearing it does not leave the event
+                without one: the system writes a brief out of what the event says about itself - its type,
+                the platforms it ran on, its industry and its date - and stores that instead.
               </SkyInfoIcon>
             </label>
             <v-text-field
               id="edit-brief"
               v-model="name"
               placeholder="Enter event brief"
+              persistent-hint
+              :hint="name.trim().length === 0 ? BRIEF_HINT : ''"
             />
           </div>
 
@@ -254,7 +257,6 @@ interface Emits {
 
 /** What the user is told while Save is refusing to be pressed. */
 const NOTHING_CHANGED = 'Nothing has changed yet'
-const NAME_MISSING = 'An event has to keep a brief'
 const REASON_MISSING = 'A reason is needed before this can be saved'
 const DUPLICATE_FILES = 'A file cannot be attached twice under the same name'
 </script>
@@ -276,6 +278,9 @@ import { toMetadataAttributes, toValueMap, toValueTypeMap } from '@/utils/rows'
 
 const STATUS_OPTIONS: EventStatus[] = ['draft', 'raw', 'parsed', 'partial', 'failed', 'archived']
 const RESULT_OPTIONS: ExperimentResult[] = ['successful', 'partial', 'failed']
+
+/** What the brief field says while it is empty, so that clearing it never reads as losing it. */
+const BRIEF_HINT = 'Left empty, a brief is written for this event'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
@@ -351,10 +356,6 @@ const legacyCount = computed<number>(() => {
 })
 
 const blockedReason = computed<string>(() => {
-  if (name.value.trim().length === 0) {
-    return NAME_MISSING
-  }
-
   if (duplicateWarning.value.length > 0) {
     return DUPLICATE_FILES
   }

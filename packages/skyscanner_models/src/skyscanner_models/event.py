@@ -95,7 +95,13 @@ class EventCreateRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    name: str | None = Field(default=None, description="Name of the event, derived from the type when omitted")
+    # The brief an event is listed and searched by. It is optional: an uploader who does not write one gets
+    # one written for them out of what the event already says about itself - its type, its platforms, its
+    # industry and its date - so that a missing brief never stands between anybody and a filed event.
+    name: str | None = Field(
+        default=None,
+        description="Brief of the event, generated from its type, platforms, industry and date when omitted",
+    )
     reference_id: str = Field(default="", description="Identifier the user knows the event by")
     event_type_keys: list[str] = Field(default_factory=list, description="Keys of the event types the event matches")
     industry: str = Field(description="Industry key the event belongs to")
@@ -124,7 +130,10 @@ class EventUpdateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     reason: str = Field(min_length=1, description="Why the change is being made, kept in the edit history")
-    name: str | None = Field(default=None, description="New name of the event")
+    name: str | None = Field(
+        default=None,
+        description="New brief of the event, regenerated from the convention when it is handed over empty",
+    )
     reference_id: str | None = Field(default=None, description="New identifier the user knows the event by")
     event_type_keys: list[str] | None = Field(default=None, description="Replacement list of event type keys")
     industry: str | None = Field(default=None, description="New industry key of the event")

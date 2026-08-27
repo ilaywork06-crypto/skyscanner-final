@@ -29,6 +29,17 @@
       @toggle-fullscreen="fullscreen = !fullscreen"
     />
 
+    <!--
+      The few vocabularies a reader narrows by every day, offered as pills rather than as a filter menu to be
+      found inside a column header. Every pick is written into the filter of its own column, so it appears as
+      a chip below, is lifted from there, and is saved with the view like any other restriction.
+    -->
+    <QuickFilters
+      :columns="columns"
+      :filters="controller.filterConditions.value"
+      @update="onQuickFilter"
+    />
+
     <ActiveFilters
       :search="controller.search.value"
       :parse-state="parseState"
@@ -151,21 +162,28 @@
             Loading <strong>{{ pendingTemplateName }}</strong> replaces them.
           </p>
         </v-card-text>
-        <v-card-actions>
+        <!--
+          Three answers to one question, and the longest of them is a whole sentence. The row is laid out to
+          wrap rather than to squeeze, because a card of a fixed width and three buttons that refuse to shrink
+          used to push the first of them straight off the left edge - it read "CEL".
+        -->
+        <v-card-actions class="inventory__answers">
           <v-btn
+            class="inventory__answer"
             variant="text"
             @click="onCancelSwitch"
           >
             Cancel
           </v-btn>
-          <v-spacer />
           <v-btn
+            class="inventory__answer"
             variant="text"
             @click="onSaveBeforeSwitch"
           >
             SAVE CURRENT VIEW FIRST
           </v-btn>
           <v-btn
+            class="inventory__answer"
             color="primary"
             @click="onConfirmSwitch"
           >
@@ -191,21 +209,23 @@
             {{ restoreDescription }}
           </p>
         </v-card-text>
-        <v-card-actions>
+        <v-card-actions class="inventory__answers">
           <v-btn
+            class="inventory__answer"
             variant="text"
             @click="restoreDialog = false"
           >
             Cancel
           </v-btn>
-          <v-spacer />
           <v-btn
+            class="inventory__answer"
             variant="text"
             @click="onSaveBeforeRestore"
           >
             SAVE CURRENT VIEW FIRST
           </v-btn>
           <v-btn
+            class="inventory__answer"
             color="primary"
             @click="onConfirmRestore"
           >
@@ -222,6 +242,7 @@ import type { FilterModel, SortModelItem } from 'ag-grid-community'
 import type { FilterChip } from '@/components/ActiveFilters.vue'
 import type { GridColumnLayout } from '@/components/EventsGrid.vue'
 import type { ExportChoice } from '@/components/EventsToolbar.vue'
+import type { QuickFilterChoice } from '@/components/QuickFilters.vue'
 import type { Artifact, ParseState } from '@/models/common'
 import type { GeneratedColumn } from '@/models/grid'
 import type { SortDirection, SortSpecification } from '@/models/query'
@@ -250,6 +271,7 @@ import EventsGrid from '@/components/EventsGrid.vue'
 import EventsToolbar from '@/components/EventsToolbar.vue'
 import FileViewerDialog from '@/components/FileViewerDialog.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
+import QuickFilters from '@/components/QuickFilters.vue'
 import ExpandedRows from '@/components/inventory/ExpandedRows.vue'
 import { buildExportRequest, useEventsGrid } from '@/composables/useEventsGrid'
 import { useSnackbar } from '@/composables/useSnackbar'
@@ -485,6 +507,16 @@ const onClearFilters = () => {
   void controller.goToPage(1)
 }
 
+/**
+ * Narrow one column to the values a quick filter pill was ticked with.
+ *
+ * The pick goes into the grid rather than beside it, which raises the change that reloads the rows - the same
+ * path a filter typed into a column header takes, so there is only ever one idea of what the table is showing.
+ */
+const onQuickFilter = (choice: QuickFilterChoice) => {
+  grid.value?.setColumnFilterValues(choice.colId, choice.values)
+}
+
 const onSelectionChanged = (rowIds: string[]) => {
   selectedIds.value = rowIds
 }
@@ -604,7 +636,7 @@ const onSaveTemplate = async (): Promise<void> => {
  * come back all describe the same view. The rows are reloaded once, at the end, against the whole of it.
  */
 const applyTemplate = async (template: TableTemplate): Promise<void> => {
-  const ordered = [...template.columns].sort((left, right) => left.order - right.order)
+  const ordered = withNewColumns([...template.columns].sort((left, right) => left.order - right.order))
   visibleColumns.value = ordered.filter((column) => column.visible).map((column) => column.key)
 
   await grid.value?.applyViewState({
@@ -625,6 +657,30 @@ const applyTemplate = async (template: TableTemplate): Promise<void> => {
   await controller.goToPage(1)
   setActiveTemplate(template.id)
   rememberView()
+}
+
+/**
+ * Add the columns the table has grown since a view was saved, each of them as the backend declares it.
+ *
+ * A saved view names the columns that existed when it was saved and says nothing at all about the ones that
+ * were added afterwards. Loading it as written would therefore hide every new column from everybody who
+ * works out of a saved view - which is how a column nobody asked to hide disappears for half the users of
+ * the system. The view keeps its own arrangement, and anything it has never heard of joins it at the end
+ * showing whatever its declaration says it should.
+ */
+const withNewColumns = (saved: TemplateColumn[]): TemplateColumn[] => {
+  const named = new Set(saved.map((column) => column.key))
+  const added = columns.value
+    .filter((column) => !named.has(column.colId))
+    .map((column, index) => ({
+      key: column.colId,
+      visible: !column.hide,
+      order: saved.length + index,
+      width: column.width,
+      pinned: column.pinned,
+    }))
+
+  return added.length === 0 ? saved : [...saved, ...added]
 }
 
 /**
@@ -799,6 +855,30 @@ watch(() => props.industry, load)
 .inventory__dialog-hint {
   font-size: 0.8125rem;
   opacity: 0.7;
+}
+
+/*
+ * The answers to a question about the current view. They hold the end of the card and drop onto a second
+ * line rather than overflowing it, which is what a row of three buttons - one of them a whole sentence -
+ * does inside a card of a fixed width once the window or the wording leaves it no room.
+ */
+.inventory__answers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-inline: 1rem;
+  padding-block-end: 1rem;
+}
+
+/*
+ * Vuetify tracks the letters of a button apart, which is what made the longest of these wide enough to push
+ * the others out of the card. They are read as words here rather than as labels of a toolbar.
+ */
+.inventory__answer.v-btn {
+  margin-inline-start: 0;
+  letter-spacing: normal;
 }
 
 @media (max-width: 48rem) {

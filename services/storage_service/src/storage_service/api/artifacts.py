@@ -6,14 +6,13 @@ The endpoints of the stored files - uploading new ones, linking to them, streami
 """
 # ----- IMPORTS ----- #
 
-import re
 from typing import Annotated
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from fastapi.responses import StreamingResponse
 
-from skyscanner_common.text import file_suffix
+from skyscanner_common.object_storage import content_disposition
+from skyscanner_common.text import file_suffix, safe_path_segment
 from skyscanner_models.common import OperationResult, UserContext
 from skyscanner_models.enums import ArtifactKind, Permission
 from skyscanner_models.storage import (
@@ -45,12 +44,7 @@ ARCHIVE_MEDIA_TYPE: str = "application/zip"
 INLINE_DISPOSITION: str = "inline"
 ATTACHMENT_DISPOSITION: str = "attachment"
 
-# A header carries plain ASCII and cannot carry a quote or a backslash unescaped, while a stored file is named
-# in whatever alphabet its owner works in. Everything outside the printable ASCII range is therefore replaced
-# in the plain file name, and the real name travels next to it in the encoded form of RFC 5987.
-UNSAFE_HEADER_CHARACTERS: re.Pattern[str] = re.compile(r'[^\x20-\x7e]|["\\]')
-FALLBACK_HEADER_CHARACTER: str = "_"
-FALLBACK_FILE_NAME: str = "download"
+UNNAMED_FILE: str = "unnamed"
 
 # ----- FUNCTIONS ----- #
 
@@ -79,10 +73,12 @@ async def upload_artifacts(
     :param descriptor: Free text describing what the files hold.
     :return: The artifact records of the written files.
     """
+    # The upload is handed over as the way to read it rather than as its bytes: the service feeds the bucket
+    # from it piece by piece, so a file larger than the memory of the process is an ordinary upload.
     payloads = [
         UploadPayload(
-            file_name=upload.filename or "unnamed",
-            content=await upload.read(),
+            file_name=safe_path_segment(upload.filename or UNNAMED_FILE, fallback=UNNAMED_FILE),
+            read=upload.read,
             content_type=upload.content_type or DEFAULT_CONTENT_TYPE,
         )
         for upload in files
@@ -140,6 +136,7 @@ async def read_content(
     _: Annotated[UserContext, Depends(require_permission(Permission.FILE_DOWNLOAD))],
     path: str,
     inline: bool = False,
+    name: str | None = None,
 ) -> StreamingResponse:
     """
     Stream one stored file through the service, which is what the preview pane of the event page reads.
@@ -153,10 +150,13 @@ async def read_content(
     :param service: Owner of the stored files.
     :param path: Key the file is stored under.
     :param inline: Whether the browser should render the file instead of saving it.
+    :param name: Name the file is offered under, defaulting to the last segment of its key.
     :return: The answer streaming the stored file.
     """
     metadata = await service.describe(path=path)
-    file_name = path.rsplit("/", maxsplit=1)[-1]
+    # Every upload is written under a fresh identifier so that two of them can never overwrite one another,
+    # which makes the key a poor name to hand a user. The caller says what the file is called instead.
+    file_name = safe_path_segment(name, fallback=UNNAMED_FILE) if name else path.rsplit("/", maxsplit=1)[-1]
     media_type = metadata.content_type
     if inline:
         media_type = _preview_media_type(content_type=metadata.content_type, file_name=file_name)
@@ -165,7 +165,7 @@ async def read_content(
         content=service.stream(path=path),
         media_type=media_type,
         headers={
-            CONTENT_DISPOSITION: _content_disposition(
+            CONTENT_DISPOSITION: content_disposition(
                 disposition=INLINE_DISPOSITION if inline else ATTACHMENT_DISPOSITION,
                 file_name=file_name,
             ),
@@ -193,7 +193,7 @@ async def download_archive(
         content=service.build_archive(request=request),
         media_type=ARCHIVE_MEDIA_TYPE,
         headers={
-            CONTENT_DISPOSITION: _content_disposition(
+            CONTENT_DISPOSITION: content_disposition(
                 disposition=ATTACHMENT_DISPOSITION,
                 file_name=request.archive_name,
             ),
@@ -252,17 +252,3 @@ def _is_text_shaped(content_type: str, file_name: str) -> bool:
         return True
 
     return file_suffix(file_name=file_name) in TEXT_FILE_SUFFIXES
-
-
-def _content_disposition(disposition: str, file_name: str) -> str:
-    """
-    Build the disposition header of an answer so that any file name survives it, quoted or not ASCII.
-
-    :param disposition: Whether the browser renders the file or saves it.
-    :param file_name: Name the file is offered under.
-    :return: The value of the disposition header.
-    """
-    fallback = UNSAFE_HEADER_CHARACTERS.sub(FALLBACK_HEADER_CHARACTER, file_name).strip() or FALLBACK_FILE_NAME
-    encoded = quote(file_name, safe="")
-
-    return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"

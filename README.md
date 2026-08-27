@@ -101,6 +101,23 @@ Declaring a field is a normal write against `POST /api/fields`, or the **Schema*
 Filtering by an industry shows the shared fields plus that industry's fields; the global view shows only the
 shared ones.
 
+### Filtering by picking rather than by typing
+
+A column whose values are a vocabulary somebody declared - a platform, an industry, an event type, a status,
+an experiment result, an entity type, a module, or any field declared as an `enum` - carries that vocabulary
+with its definition, as `filterOptions`, and declares `SetColumnFilter` instead of the text filter its type
+would otherwise get. The community build of AG Grid ships no such filter, so the web client registers one
+under that name in `useColumnFilters`, exactly as it registers the cell renderers. Remembering that *Rig A*
+is stored as `rig_a` is not something the table asks of anybody any more.
+
+The few of those a reader narrows by every day are also marked `quickFilter`, and the row of pills under the
+toolbar is built out of them. A pill writes its pick into the filter of its own column rather than beside it,
+which is what makes one pick show up as a chip under the toolbar, come off from there, and travel into a
+saved view like any filter typed into a header.
+
+Adding a value to a vocabulary is declaring it on the **Types**, **Industries** or **Schema** page. Nothing
+in the web client lists a platform or a status by hand.
+
 The tabs the industries are picked from can be dragged into whatever order a reader works in, and that order
 is kept in their own browser under `skyscanner.industry-tabs.order` - the services have no per user identity
 yet, so an order written to the document store would be handed straight back to everybody. **All** is not an
@@ -150,6 +167,15 @@ curl -X POST localhost:8080/api/types/events -H 'Content-Type: application/json'
 
 ---
 
+## Reaching the page of an event
+
+Every event is a page of its own. The number and the brief have always led there, but nothing on a row said
+so, and a reader who never happened to click one of those two cells never found the page at all. Every row
+therefore ends in the arrow that every list uses to mean *there is more of this behind here*, pinned to the
+end of the row where the eye lands after reading it, and it is a real link - it opens in a new tab, it can be
+copied, and it leads exactly where the other two do. It is furniture of the table rather than a value of it,
+so the **Columns** menu does not offer to hide it.
+
 ## Deleting
 
 Nothing is ever taken out of the document store. Deleting an event, an entity, a field, a type, a platform, a
@@ -196,6 +222,20 @@ remembered per table in this browser under `skyscanner.templates.active` - a use
 not made to pick it again every morning. A template that was deleted since simply leaves the table on the
 default view and the stale memory of it is dropped.
 
+A view saved before a column existed does not hide that column: the arrangement it names is kept and anything
+it has never heard of joins the end of it showing whatever its declaration says it should. Otherwise every
+column added to the system would be invisible to everybody who works out of a saved view.
+
+Everything narrowing the table is one and the same restriction whether it was typed into a column header or
+picked from a quick filter above it, because a quick filter writes into the filter of its own column. A view
+therefore saves and restores both, and reopening one lights its pills back up.
+
+**Which columns are shown is state, not declaration.** Handing AG Grid a new set of column definitions makes
+it build its columns again from scratch, and a column built again is a column whose filter was thrown away -
+so a table that rebuilt its definitions every time a box was ticked in the **Columns** menu was a table that
+silently dropped every filter it was running, saved views included. `columnDefs` therefore changes only when
+the generated configuration does, and visibility is written into the running grid with `applyColumnState`.
+
 **Default view** is always the last entry of the list: the table exactly as the backend generates it, with
 every column at its declared place, nothing filtered and nothing searched. Returning to it throws away
 whatever was arranged since, so a view with unsaved arrangements is asked about first and can be kept under a
@@ -209,8 +249,8 @@ The two steps of the create wizard map onto the API like this:
 
 1. **Data** - event type, industry, the platforms it ran on, status, the **event brief** the event is listed
    under and the files of the event itself. The files go to `POST /api/storage/artifacts` first and come back
-   as artifact records. The wizard requires the brief, which is stored as the `name` of the event; `event_id`
-   is minted by the service and is never part of the payload. The rest of the built in fields - the reference
+   as artifact records. The brief is stored as the `name` of the event and is optional; `event_id` is minted
+   by the service and is never part of the payload. The rest of the built in fields - the reference
    id, the date, the experiment result and the free text - are only asked for when the chosen **event type**
    declares them, which is what keeps an experiment result off an event that is not an experiment, and the
    **event fields** that type names are asked for underneath them.
@@ -222,6 +262,64 @@ industry, and the entities underneath it are shaped by the dynamic schema of the
 industry does vary along with its modules.
 
 `POST /api/events` then stores the whole thing as one document.
+
+### The brief an event is listed under
+
+The brief is the short line the inventory shows, searches and recognises an event by, and asking for it was
+the one thing standing between a watchdog - or a user in a hurry - and an uploaded event. Leaving it out is
+therefore allowed, and `events_service.services.brief` writes one out of what the event already says about
+itself, in a fixed order so that two events written a month apart read alike:
+
+```
+<event types> · <platforms> · <industry> · <date> [· via <upload source>] · #<event number>
+Ferry flight · rig_a + rig_b · robotics · 27 Aug 2026 · #142
+Experiment · falcon · aviation · 27 Aug 2026 · via watchdog · #7
+```
+
+The date is the date of the activity when the event type asks for one and the moment of the upload otherwise;
+the running number closes it, so two events that agree on everything else are still told apart; and the upload
+source is named only when it was not a person filling the wizard in. Past three platforms the rest are counted
+rather than named. A generated brief is an ordinary value: the create wizard shows the one it is about to
+write underneath the empty field, and the event page edits it like anything else. Clearing it on an edit
+writes the convention again rather than storing an event with no brief at all.
+
+### Large files, many files
+
+Nothing about an upload is held in memory as a whole any more. The web layer hands the storage service the
+*way to read* an upload rather than its bytes, and `ObjectStorageClient.upload_stream` decides what to do
+with it: below `S3_MULTIPART_THRESHOLD_BYTES` it is one ordinary write, and above it the bucket takes it as a
+**multipart upload** - part by part, `S3_MULTIPART_CONCURRENCY` parts of one file in the air at once, so the
+memory a file costs is that many parts rather than the size of the file. A part that fails aborts the upload
+instead of leaving the pieces of half a file in the bucket. Archives are built the same way: an entry is
+streamed out of the bucket into the zip rather than downloaded whole first.
+
+The other half of the wait is the round trips. `S3_UPLOAD_CONCURRENCY` files of one request are written at the
+same time, and the web client no longer sends every picked file in a single request: it splits a pick into
+batches, runs several of them side by side, and gives any file past sixteen megabytes a request of its own -
+a batch is only ever as quick as the largest file in it.
+
+| Setting | Default | What it decides |
+| --- | --- | --- |
+| `S3_MULTIPART_THRESHOLD_BYTES` | 16 MiB | Past this a file is written as a multipart upload |
+| `S3_MULTIPART_CHUNK_BYTES` | 8 MiB | How much of a file one part carries, floored at the 5 MiB of the protocol |
+| `S3_MULTIPART_CONCURRENCY` | 4 | How many parts of one file travel at once |
+| `S3_UPLOAD_CONCURRENCY` | 6 | How many files of one request are written at once |
+
+### The alphabet a file is named in
+
+A file is named in the alphabet its owner works in, and none of that is a reason to rename it: a name written
+in Hebrew is stored, listed, archived and downloaded in Hebrew. `safe_path_segment` replaces only what would
+change where a file ends up or break the tool reading it - the separators, the control characters and the two
+edges a file system trims by itself - and normalises the rest so that two spellings of one letter cannot
+become two different files. Three places used to lose such a name and no longer do:
+
+- **The key in the bucket.** Keys are UTF-8 and always were; the name goes in as it was written.
+- **The attributes stored beside the object.** Those travel as headers, which carry ASCII and nothing else,
+  so `ascii_metadata_value` percent encodes them rather than replacing the letters the bucket cannot spell.
+- **The header of a download and the entries of an archive.** Both carry the real name - the download in the
+  encoded form of RFC 5987 beside a plain fallback, the archive in the UTF-8 the format has carried for two
+  decades. A download is also offered under the name the file was picked with rather than under its key,
+  which is minted per upload so that two uploads can never overwrite one another.
 
 ### Attaching and detaching files
 
@@ -235,6 +333,12 @@ take the whole replacement list, so a list that leaves a file out detaches it, u
 rest of the edit and recorded in the history beside it. The edit dialogs mark a file for removal rather than
 reaching into the bucket, so the mark can be taken back until Save is pressed. The bytes stay in the bucket:
 detaching drops the reference, exactly as deleting an event does.
+
+The entity table shows those file sets as two columns of their own - **RAW FILES** and **PARSED FILES**, the
+products of the parsing folded in with the parsed ones - rather than as one column of folders that had to be
+opened before it said anything. The single `files` column they replaced is still generated, hidden, so that a
+saved view or a script naming it finds a column rather than nothing, and every row still carries the whole
+list under that key.
 
 Raw first, parsed later is the normal flow: upload an entity with its raw files, and once the parsing products
 exist, open the event, edit the entity and drop the parsed files in. The status follows the files rather than

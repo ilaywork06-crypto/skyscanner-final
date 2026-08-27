@@ -22,7 +22,7 @@ interface AgFilterGroup extends AgFilterLeaf {
 }
 
 /** The kind of filter a rebuilt leaf declares, which has to match the filter component of its column. */
-type AgFilterType = 'text' | 'number' | 'date'
+type AgFilterType = 'text' | 'number' | 'date' | 'set'
 
 const OPERATOR_BY_AG_TYPE: Record<string, FilterOperator> = {
   contains: 'contains',
@@ -42,8 +42,9 @@ const OPERATOR_BY_AG_TYPE: Record<string, FilterOperator> = {
 }
 
 /*
- * The way back out of a stored condition. The list operators are missing on purpose: they are written by a set
- * filter, which the community build of the grid does not carry, so nothing can render them back.
+ * The way back out of a stored condition, for the filters the grid itself ships. The list operators are not
+ * here because they belong to no built in filter: they are written by the set filter the client registers,
+ * and rebuilt a few lines below in the shape that one reads.
  */
 const AG_TYPE_BY_OPERATOR: Partial<Record<FilterOperator, string>> = {
   contains: 'contains',
@@ -65,7 +66,19 @@ const AG_TYPE_BY_FILTER_COMPONENT: Record<string, AgFilterType> = {
   agTextColumnFilter: 'text',
   agNumberColumnFilter: 'number',
   agDateColumnFilter: 'date',
+  SetColumnFilter: 'set',
 }
+
+/**
+ * What a filter over a known vocabulary calls itself inside the filter model of the grid.
+ *
+ * The community build ships no such filter, so the client registers one and both halves of the translation
+ * agree on this name rather than each guessing at the shape the other wrote.
+ */
+const SET_FILTER_TYPE = 'set'
+
+/** The one operator a set filter can express: the column holds one of the values that were ticked. */
+const SET_FILTER_OPERATOR: FilterOperator = 'in'
 
 /** Every leaf of one column narrows the rows further, which is what joining them again has to preserve. */
 const JOIN_OPERATOR = 'AND'
@@ -100,7 +113,11 @@ const readSecondValue = (leaf: AgFilterLeaf): JsonValue => {
  */
 const parseLeaf = (key: string, leaf: AgFilterLeaf): FilterCondition | null => {
   if (leaf.values !== undefined) {
-    return { key, operator: 'in', value: null, values: leaf.values }
+    /* Nothing ticked is not a restriction at all, and asking for a column to be one of nothing is a table
+     * with no rows in it - so an emptied set filter drops its condition instead of writing that question. */
+    return leaf.values.length === 0
+      ? null
+      : { key, operator: SET_FILTER_OPERATOR, value: null, values: leaf.values }
   }
 
   const operator = OPERATOR_BY_AG_TYPE[leaf.type ?? 'contains']
@@ -165,6 +182,26 @@ const toDateText = (value: JsonValue): string | null => {
  * Rebuild the leaf of one stored condition in the shape the filter component of its column reads.
  */
 const buildLeaf = (condition: FilterCondition, filterType: AgFilterType): AgFilterLeaf | null => {
+  /*
+   * A list of values is a set filter whatever the column was generated as, so it is rebuilt as one. Its
+   * negation is left alone: no filter of the table writes one, and rendering it as the plain list would
+   * turn a saved view that excludes three platforms into one that shows only those three.
+   */
+  if (condition.operator === SET_FILTER_OPERATOR) {
+    return condition.values.length === 0
+      ? null
+      : { filterType: SET_FILTER_TYPE, values: [...condition.values] }
+  }
+
+  /*
+   * A column that is filtered by picking today was filtered by typing before it, so a view saved back then
+   * carries a single typed value where the header now expects a list. One value is a list of one, which is
+   * what lets such a view open with its own pill ticked rather than with a header claiming nothing at all.
+   */
+  if (filterType === SET_FILTER_TYPE && condition.operator === 'equals' && condition.value !== null) {
+    return { filterType: SET_FILTER_TYPE, values: [condition.value] }
+  }
+
   const type = AG_TYPE_BY_OPERATOR[condition.operator]
   if (type === undefined) {
     return null
@@ -227,6 +264,16 @@ const buildFilterModel = (
       return
     }
 
+    /*
+     * Two set filters on one column are one question - the column holds any of these values - so they are
+     * joined into a single list rather than into a pair of conditions the filter would have to read as one.
+     */
+    if (first.filterType === SET_FILTER_TYPE) {
+      model[key] = { filterType: SET_FILTER_TYPE, values: leaves.flatMap((leaf) => leaf.values ?? []) }
+
+      return
+    }
+
     const group: AgFilterGroup = { filterType: first.filterType, operator: JOIN_OPERATOR, conditions: leaves }
     model[key] = leaves.length === 1 ? first : group
   })
@@ -241,4 +288,4 @@ const buildSortSpecifications = (model: SortModelItem[]): SortSpecification[] =>
   model.map((item) => ({ key: item.colId, direction: item.sort === 'asc' ? 'asc' : 'desc' }))
 
 export type { AgFilterGroup, AgFilterLeaf, AgFilterType }
-export { buildFilterConditions, buildFilterModel, buildSortSpecifications }
+export { SET_FILTER_TYPE, buildFilterConditions, buildFilterModel, buildSortSpecifications }

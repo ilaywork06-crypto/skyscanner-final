@@ -9,7 +9,6 @@ The export of the current table view, handing the user the very rows they filter
 import csv
 import io
 import json
-import re
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +16,7 @@ from pydantic_core import to_jsonable_python
 
 from ag_grid_lib.columns import DYNAMIC_FIELD_PREFIX
 from skyscanner_common.datetime_utils import utc_now
+from skyscanner_common.text import safe_path_segment
 from skyscanner_models.common import Artifact
 from skyscanner_models.enums import EntityStatus
 from skyscanner_models.query import SearchQuery
@@ -35,7 +35,6 @@ EXPORT_LIMIT: int = 10000
 LIST_JOIN: str = ", "
 STAMP_FORMAT: str = "%Y%m%dT%H%M%SZ"
 ARCHIVE_COLLECTION_NAME: str = "skyscanner-files"
-UNSAFE_PATH_CHARACTERS: re.Pattern[str] = re.compile(r"[^A-Za-z0-9._-]+")
 
 # The two shapes the sheet may take. The summary keeps one row per event and folds its entities into a few
 # columns, which is what a reader of the inventory expects; the row per entity is for the reader who came for
@@ -423,12 +422,13 @@ def _safe(value: str) -> str:
     """
     Turn a name into one that every unpacking tool accepts as a single path segment.
 
+    The archive format has carried UTF-8 entry names for two decades, so a file called in Hebrew reaches the
+    reader called in Hebrew: only what would move it into a folder of its own is taken out of the name.
+
     :param value: Name read from an event, an entity or a file.
     :return: The name without separators or characters that break an archive entry.
     """
-    cleaned = UNSAFE_PATH_CHARACTERS.sub("_", value).strip("._ ")
-
-    return cleaned or "unnamed"
+    return safe_path_segment(value)
 
 
 def _flatten(row: dict[str, Any]) -> dict[str, Any]:

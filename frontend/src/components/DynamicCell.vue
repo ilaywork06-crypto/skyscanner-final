@@ -79,10 +79,28 @@
   <FileList
     v-else-if="kind === 'files'"
     :files="artifacts"
+    :flat="isFlat"
     show-upload
     @open="emit('open', $event)"
     @download="emit('download', $event)"
   />
+  <!--
+    A moment the system recorded rather than one anybody chose. It is worth having and rarely what the row was
+    opened for, so it stands at the end of its column behind the mark of a date, quieter than the values
+    beside it - the same way the facts of the event page mark the date they carry.
+  -->
+  <span
+    v-else-if="kind === 'date' && isStamp"
+    class="dynamic-cell__stamp"
+  >
+    <v-icon
+      v-if="text.length > 0"
+      class="dynamic-cell__stamp-icon"
+      size="x-small"
+      icon="mdi-calendar-blank-outline"
+    />
+    {{ dateLabel }}
+  </span>
   <span
     v-else-if="kind === 'date'"
     class="dynamic-cell__text"
@@ -104,7 +122,14 @@
 
 <script lang="ts">
 import type { Artifact } from '@/models/common'
-import { EMPTY_PLACEHOLDER, SkyChip, formatDate, formatDateTime, humanizeKey } from '@skyscanner/sky-ui'
+import {
+  EMPTY_PLACEHOLDER,
+  SkyChip,
+  formatCompactDateTime,
+  formatDate,
+  formatDateTime,
+  humanizeKey,
+} from '@skyscanner/sky-ui'
 import type { GeneratedColumn, GridRow } from '@/models/grid'
 import type { Industry } from '@/models/industry'
 
@@ -165,10 +190,26 @@ const kind = computed<CellKind>(() => {
 
 const text = computed<string>(() => readText(props.row, props.column.field))
 
-/* The same column definition drives the grid and this cell, so a moment carries its clock in both. */
-const dateLabel = computed<string>(() =>
-  props.column.cellRendererParams.withTime === true ? formatDateTime(text.value) : formatDate(text.value),
-)
+/*
+ * Whether this cell is a bookkeeping stamp - created at, updated at - rather than a moment anybody chose.
+ * The column says which it is, so the table and the panels underneath it read it exactly the same way.
+ */
+const isStamp = computed<boolean>(() => props.column.cellRendererParams.stamp === true)
+
+/* A column that already names one half of the files of a row draws them as a plain list, not as folders. */
+const isFlat = computed<boolean>(() => props.column.cellRendererParams.flat === true)
+
+/*
+ * The same column definition drives the grid and this cell, so a moment carries its clock in both - and a
+ * stamp is written the short way, because the whole point of it is to take as little of the row as it can.
+ */
+const dateLabel = computed<string>(() => {
+  if (props.column.cellRendererParams.withTime !== true) {
+    return formatDate(text.value)
+  }
+
+  return isStamp.value ? formatCompactDateTime(text.value) : formatDateTime(text.value)
+})
 const artifacts = computed<Artifact[]>(() => readArtifacts(readPath(props.row, props.column.field)))
 
 /* The items of a list valued cell, read out of the value itself rather than off the flattened text. */
@@ -235,5 +276,27 @@ const isStatusMatch = computed<boolean>(() => isMatch(statusLabel.value) || isMa
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * A stamp reads at the end of its column, in digits of one width so that a column of them lines up, and one
+ * step quieter than everything beside it - which is exactly how much attention it deserves.
+ */
+.dynamic-cell__stamp {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dynamic-cell__stamp-icon {
+  flex: 0 0 auto;
+  opacity: 0.8;
 }
 </style>

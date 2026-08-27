@@ -63,11 +63,27 @@ class StorageSettings(BaseSettings):
     access_key_id: str | None = Field(default=None, validation_alias="S3_ACCESS_KEY_ID")
     secret_access_key: str | None = Field(default=None, validation_alias="S3_SECRET_ACCESS_KEY")
     presigned_url_ttl_seconds: int = Field(default=3600, ge=60, validation_alias="S3_PRESIGNED_URL_TTL_SECONDS")
+    # Past this a file is written as a multipart upload rather than as one request: the bucket then takes it
+    # part by part, so nothing larger than a single part is ever held in memory and a part that fails is the
+    # only thing that has to be sent again.
     multipart_threshold_bytes: int = Field(
         default=16 * 1024 * 1024,
         ge=1024,
         validation_alias="S3_MULTIPART_THRESHOLD_BYTES",
     )
+    # How much of a file one part carries. Five megabytes is the floor the protocol itself sets for every
+    # part but the last one, so the setting cannot be lowered past it.
+    multipart_chunk_bytes: int = Field(
+        default=8 * 1024 * 1024,
+        ge=5 * 1024 * 1024,
+        validation_alias="S3_MULTIPART_CHUNK_BYTES",
+    )
+    # How many parts of one file are in the air at once. The memory a single upload costs is this many parts,
+    # so the two settings together are what bound a large upload rather than the size of the file.
+    multipart_concurrency: int = Field(default=4, ge=1, le=32, validation_alias="S3_MULTIPART_CONCURRENCY")
+    # How many files of one request are written at the same time. A user dropping two hundred files used to
+    # wait for two hundred round trips one after another.
+    upload_concurrency: int = Field(default=6, ge=1, le=32, validation_alias="S3_UPLOAD_CONCURRENCY")
 
 
 class AuthSettings(BaseSettings):

@@ -6,6 +6,7 @@
   <FileList
     :files="files"
     :search="search"
+    :flat="flat"
     start-open
     @open="onOpen"
     @download="onDownload"
@@ -34,6 +35,12 @@ const props = defineProps<Props>()
 const files = computed<Artifact[]>(() => readArtifacts(props.params.value ?? null))
 
 const search = computed<string>(() => readContext(props.params).search)
+
+/*
+ * A column that already names one half of the files of a row - RAW FILES, PARSED FILES - says so, and its
+ * list is drawn as the plain list it is rather than as a folder that has to be opened first.
+ */
+const flat = computed<boolean>(() => props.params.colDef?.cellRendererParams?.flat === true)
 
 const onOpen = (artifact: Artifact) => {
   readContext(props.params).openArtifact(artifact)

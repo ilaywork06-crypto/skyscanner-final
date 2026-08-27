@@ -364,7 +364,12 @@ const PARSE_LABELS: Record<ParseState, string> = {
   not_parsed: 'NOT PARSED',
 }
 
-const NON_TOGGLEABLE: string[] = ['expander', 'actions']
+/*
+ * The columns that are furniture of the table rather than values of it: the arrow that opens a row, the one
+ * that opens the event page, and the controls. None of them carries a heading, so offering them here would
+ * put nameless boxes in the menu, and hiding the way into the event page is not a choice worth offering.
+ */
+const NON_TOGGLEABLE: string[] = ['expander', 'actions', 'open']
 
 /** What the table is called while no saved view is loaded, which is also the way back to it. */
 const DEFAULT_VIEW_LABEL = 'Default view'

@@ -4,17 +4,18 @@
 
 import { applyThemeCompatibility, supportsColorMix } from './compatibility'
 import { createGridController } from './controller'
-import { buildFilterConditions, buildFilterModel, buildSortSpecifications } from './datasource'
+import { SET_FILTER_TYPE, buildFilterConditions, buildFilterModel, buildSortSpecifications } from './datasource'
 import { DETAIL_ROW_KEY, buildGridOptions, isDetailRow, registerGridModules } from './grid'
 import { parseColumnDefinitions } from './parse'
 
 import type { GridController, GridControllerInput, RowsQuery } from './controller'
 import type { AgFilterType } from './datasource'
 import type { GridOptionsInput } from './grid'
-import type { CellRendererRegistry, ParseOptions } from './parse'
+import type { CellRendererRegistry, FilterComponentRegistry, ParseOptions } from './parse'
 import type {
   FilterCondition,
   FilterOperator,
+  FilterOption,
   GeneratedColumn,
   GeneratedGridConfiguration,
   GridRow,
@@ -27,8 +28,10 @@ import type {
 export type {
   AgFilterType,
   CellRendererRegistry,
+  FilterComponentRegistry,
   FilterCondition,
   FilterOperator,
+  FilterOption,
   GeneratedColumn,
   GeneratedGridConfiguration,
   GridController,
@@ -44,6 +47,7 @@ export type {
 }
 export {
   DETAIL_ROW_KEY,
+  SET_FILTER_TYPE,
   applyThemeCompatibility,
   buildFilterConditions,
   buildFilterModel,

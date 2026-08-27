@@ -6,6 +6,7 @@ The rules around the events themselves - creating one out of the wizard, reading
 """
 # ----- IMPORTS ----- #
 
+from datetime import datetime
 from math import ceil
 from typing import Any
 
@@ -25,6 +26,7 @@ from events_service.repositories.counter_repository import CounterRepository
 from events_service.repositories.event_repository import EventRepository
 from events_service.repositories.outbox_repository import OutboxRepository
 from events_service.services.artifact_rules import require_unique_artifacts
+from events_service.services.brief import build_event_brief
 from events_service.services.entity_service import EntityService
 from events_service.services.field_service import FieldService
 from events_service.services.revision_service import RevisionService, event_update_changes
@@ -131,12 +133,15 @@ class EventService:
             asked=_asked_keys(types),
         )
         event_number = await self._counter_repository.next_value(name=EVENT_ID_COUNTER)
+        event_date = ensure_utc(request.event_date)
 
         document = EventDocument(
             id=new_id(),
             event_id=event_number,
             reference_id=request.reference_id.strip(),
-            name=request.name or f"{types[0].name} {event_number}",
+            # A brief nobody wrote is derived from what the event already says about itself rather than
+            # refused, which is what lets a watchdog - and a user in a hurry - file an event at all.
+            name=_resolve_brief(request=request, types=types, event_number=event_number, moment=event_date),
             event_type=[declared.to_reference() for declared in types],
             event_type_names=[declared.name for declared in types],
             event_type_keys=[declared.key for declared in types],
@@ -144,7 +149,7 @@ class EventService:
             platforms=list(request.platforms),
             status=request.status,
             experiment_result=request.experiment_result,
-            event_date=ensure_utc(request.event_date),
+            event_date=event_date,
             notes=request.notes,
             additional_files=request.additional_files,
             metadata=attributes,
@@ -205,6 +210,19 @@ class EventService:
             updates["event_type"] = [declared.to_reference().model_dump() for declared in types]
             updates["event_type_names"] = [declared.name for declared in types]
             updates["event_type_keys"] = [declared.key for declared in types]
+
+        # A brief that was emptied is written again rather than stored empty: the brief is what the event is
+        # listed and recognised by, so an event may be left to the convention but never left without one. It
+        # is written after the values it is derived from, so an edit that changes both agrees with itself.
+        if request.name is not None and not request.name.strip():
+            updates["name"] = build_event_brief(
+                type_names=list(updates.get("event_type_names", document.event_type_names)),
+                platforms=list(updates.get("platforms", document.platforms)),
+                industry=str(updates.get("industry", document.industry)),
+                moment=ensure_utc(request.event_date) or document.event_date or document.created_at,
+                event_number=document.event_id,
+                upload_source=document.upload_source,
+            )
 
         if request.metadata is not None:
             # The types are read back tolerantly: one that was removed since the event was filed under it
@@ -354,3 +372,34 @@ def _asked_keys(types: list[TypeDocument]) -> set[str]:
     :return: The keys of the declared event fields the event form asks for.
     """
     return {key for declared in types for key in declared.custom_fields}
+
+
+def _resolve_brief(
+    request: EventCreateRequest,
+    types: list[TypeDocument],
+    event_number: int,
+    moment: datetime | None,
+) -> str:
+    """
+    Decide what a new event is listed under - what its uploader wrote, or what the convention writes for them.
+
+    :param request: Event supplied by the user.
+    :param types: Event types the event was filed under.
+    :param event_number: Running number the system minted for the event.
+    :param moment: Moment the activity happened, empty when the event type does not ask for one.
+    :return: The brief the event is stored under.
+    """
+    written = (request.name or "").strip()
+    if written:
+        return written
+
+    return build_event_brief(
+        type_names=[declared.name for declared in types],
+        platforms=list(request.platforms),
+        industry=request.industry,
+        # The date of the activity is what a reader recognises the event by; an event whose type does not
+        # ask for one is dated by the moment it was uploaded, which is the only moment it has.
+        moment=moment or utc_now(),
+        event_number=event_number,
+        upload_source=request.upload_source,
+    )

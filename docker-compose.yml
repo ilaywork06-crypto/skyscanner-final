@@ -74,6 +74,13 @@ services:
       S3_BUCKET: ${S3_BUCKET:-skyscanner-artifacts}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-skyscanner}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-skyscanner-secret}
+      # What a large upload costs and how quickly a pick of many files is written. Past the threshold a file
+      # is written to the bucket in parts, so the memory it costs is the concurrency times the chunk rather
+      # than the size of the file. Every one of them has a default and only needs naming to be tuned.
+      S3_MULTIPART_THRESHOLD_BYTES: ${S3_MULTIPART_THRESHOLD_BYTES:-16777216}
+      S3_MULTIPART_CHUNK_BYTES: ${S3_MULTIPART_CHUNK_BYTES:-8388608}
+      S3_MULTIPART_CONCURRENCY: ${S3_MULTIPART_CONCURRENCY:-4}
+      S3_UPLOAD_CONCURRENCY: ${S3_UPLOAD_CONCURRENCY:-6}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:8080,http://localhost:5173}
       AUTH_ALLOW_ANONYMOUS: ${AUTH_ALLOW_ANONYMOUS:-true}
       AUTH_ANONYMOUS_ROLES: ${AUTH_ANONYMOUS_ROLES:-admin}

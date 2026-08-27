@@ -164,20 +164,27 @@ export type { GridColumnLayout, GridViewState }
 </script>
 
 <script setup lang="ts">
-import { buildFilterModel, buildGridOptions, isDetailRow, parseColumnDefinitions } from '@skyscanner/ag-grid-ts'
+import {
+  SET_FILTER_TYPE,
+  buildFilterModel,
+  buildGridOptions,
+  isDetailRow,
+  parseColumnDefinitions,
+} from '@skyscanner/ag-grid-ts'
 import { AgGridVue } from 'ag-grid-vue3'
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 
 import DetailRowRenderer from '@/components/cells/DetailRowRenderer.vue'
 import StickyScrollBar from '@/components/inventory/StickyScrollBar.vue'
 import { useAppTheme } from '@/composables/useAppTheme'
-import { useCellRenderers } from '@/composables/useCellRenderers'
+import { useCellRenderers, useColumnFilters } from '@/composables/useCellRenderers'
 import { buildGridTheme } from '@/utils/grid-theme'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const registry = useCellRenderers()
+const filterRegistry = useColumnFilters()
 const { colors, isDark } = useAppTheme()
 const gridApi = shallowRef<GridApi<GridRow> | null>(null)
 const root = ref<HTMLElement | null>(null)
@@ -271,14 +278,17 @@ const layoutOf = (pinned: boolean): DomLayoutType => (pinned ? 'normal' : 'autoH
 
 /*
  * AG Grid reads the grid options object exactly once, when the grid is created, so the columns cannot ride
- * along with it: toggling one in the toolbar or loading a template would rebuild the object and change
- * nothing on screen. The column definitions therefore travel as their own prop, which the Vue wrapper does
- * watch and does push into the running grid.
+ * along with it: a changed schema would rebuild the object and change nothing on screen. The column
+ * definitions therefore travel as their own prop, which the Vue wrapper does watch and does push into the
+ * running grid.
+ *
+ * Which columns are *shown* is deliberately not part of this. Handing the grid a new set of definitions makes
+ * it build its columns again from scratch, and a column built again is a column whose filter was thrown away
+ * - so ticking a box in the Columns menu, or loading a saved view, used to silently drop every filter the
+ * table was running. Visibility is state rather than declaration, and it is written as state below.
  */
 const columnDefs = computed<ColDef<GridRow>[]>(() =>
-  props.configuration === null
-    ? []
-    : parseColumnDefinitions(props.configuration, { registry, visibleColumns: props.visibleColumns }),
+  props.configuration === null ? [] : parseColumnDefinitions(props.configuration, { registry, filters: filterRegistry }),
 )
 
 /*
@@ -303,9 +313,11 @@ const gridOptions = computed<GridOptions<GridRow> | null>(() => {
   }
 
   const rowHeight = props.configuration.rowHeight
+  /* Read once, when the grid is built, which is the one moment the visibility belongs in a definition. */
   const options = buildGridOptions({
     configuration: props.configuration,
     registry,
+    filters: filterRegistry,
     visibleColumns: props.visibleColumns,
   })
 
@@ -428,6 +440,47 @@ const clearColumnFilter = (colId: string) => {
   const model = { ...api.getFilterModel() }
   delete model[colId]
   api.setFilterModel(model)
+}
+
+/**
+ * Narrow one column to a set of values, which is what the quick filters above the table ask for.
+ *
+ * The pick is written into the filter of the column rather than kept beside the table, so it reaches the
+ * header of that column, the chips that name every active restriction, and the view that gets saved - one
+ * pick, one place it lives, and one way it is lifted again.
+ */
+const setColumnFilterValues = (colId: string, values: string[]) => {
+  const api = gridApi.value
+  if (api === null) {
+    return
+  }
+
+  const model = { ...api.getFilterModel() }
+  if (values.length === 0) {
+    delete model[colId]
+  } else {
+    model[colId] = { filterType: SET_FILTER_TYPE, values: [...values] }
+  }
+  api.setFilterModel(model)
+}
+
+/**
+ * Show exactly the columns that were asked for, without rebuilding a single column definition.
+ *
+ * Only the columns the configuration declares are written: the tick box column is the grid's own and appears
+ * in its state without ever appearing in the configuration, so a blanket write would hide it.
+ */
+const applyVisibility = (visible: string[]) => {
+  const api = gridApi.value
+  const declared = props.configuration?.columns ?? []
+  if (api === null || declared.length === 0) {
+    return
+  }
+
+  const shown = new Set(visible)
+  api.applyColumnState({
+    state: declared.map((column) => ({ colId: column.colId, hide: !shown.has(column.colId) })),
+  })
 }
 
 /**
@@ -574,11 +627,27 @@ defineExpose({
   setAllSelected,
   clearFilters,
   clearColumnFilter,
+  setColumnFilterValues,
   readColumnLayout,
   applySort,
   applyViewState,
   resetView,
 })
+
+/*
+ * Showing and hiding a column is written straight into the running grid rather than through a rebuild of the
+ * column definitions, which is what lets a table keep the filters it is running while its columns change.
+ * A view being restored writes its own visibility along with the rest of itself, so this stands down for it.
+ */
+watch(
+  () => props.visibleColumns,
+  (visible) => {
+    if (!restoringView) {
+      applyVisibility(visible)
+    }
+  },
+  { deep: true },
+)
 
 /*
  * The theme object is read once when the grid is created, so switching between the dark and the light
