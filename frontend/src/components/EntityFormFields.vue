@@ -311,11 +311,22 @@ const statusExplanation = computed<string>(() =>
     : 'The status follows the files. Raw is data as it arrived, parsing is a run in progress, failed is a run that did not produce anything, and the parsed states are only reachable by attaching the parsed files themselves.',
 )
 
+
+let pending: EntityFormValue = props.modelValue
+
+watch(
+  () => props.modelValue,
+  (value) => {
+    pending = value
+  },
+)
+
 /**
  * Hand the parent a whole new value with one part of it replaced, so the form owns no state of its own.
  */
 const patch = (changes: Partial<EntityFormValue>) => {
-  emit('update:modelValue', { ...props.modelValue, ...changes })
+  pending = { ...pending, ...changes }
+  emit('update:modelValue', pending)
 }
 
 /*

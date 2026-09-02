@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="sky-logo-title">
+  <title id="sky-logo-title">Skyscanner</title>
+  <!--
+    The mark says the two halves of the name in one picture: a scope sweeping the sky, and an aircraft flying
+    into the beam it is being picked up by. The aircraft is the same delta the application header draws along
+    its flight trail, so the badge and the page it sits on are plainly the same piece of design.
+
+    It is drawn on a 64 unit square and carries only four shapes, because the smallest place it is ever seen
+    is a 16 pixel browser tab: the badge and the beam are what identify it there, and the rest is what it
+    resolves into once there is room for it.
+  -->
+  <defs>
+    <linearGradient id="sky-logo-badge" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2A3A94"/>
+      <stop offset="0.55" stop-color="#1F75FE"/>
+      <stop offset="1" stop-color="#0087EB"/>
+    </linearGradient>
+    <linearGradient id="sky-logo-beam" x1="32" y1="32" x2="52" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.3"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="15" fill="url(#sky-logo-badge)"/>
+
+  <circle cx="32" cy="32" r="20.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2.2"/>
+
+  <path d="M32 32 L32 11.5 A20.5 20.5 0 0 1 48.79 20.24 Z" fill="url(#sky-logo-beam)"/>
+
+  <path d="M29.5 33.5 L15.5 38.63 L21.57 40.03 L23.9 45.63 Z" fill="#FFDB58"/>
+</svg>

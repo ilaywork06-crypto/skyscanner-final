@@ -36,6 +36,17 @@
         to="/events"
         class="app-header__brand-link"
       >
+        <!--
+          The badge is the same file the browser tab draws its icon from, so the tab and the page a user
+          lands on carry one mark rather than two that can drift apart. It is decorative beside a wordmark
+          that already says the name, which is why it is hidden from a screen reader.
+        -->
+        <img
+          class="app-header__logo"
+          src="/logo.svg"
+          alt=""
+          aria-hidden="true"
+        >
         <span class="app-header__brand">Skyscanner</span>
       </RouterLink>
 
@@ -182,8 +193,22 @@ const { isDark, toggle } = useAppTheme()
 }
 
 .app-header__brand-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   text-decoration: none;
   color: inherit;
+}
+
+/*
+ * The badge is sized off the wordmark beside it rather than in pixels of its own, so the pair keeps its
+ * proportions as the wordmark grows with the viewport.
+ */
+.app-header__logo {
+  inline-size: clamp(2rem, 2.7vw, 2.75rem);
+  block-size: clamp(2rem, 2.7vw, 2.75rem);
+  border-radius: 0.5rem;
+  flex: 0 0 auto;
 }
 
 /* The wordmark is the one piece of the design drawn in the display family rather than in the interface one. */
