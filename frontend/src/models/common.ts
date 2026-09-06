@@ -1,23 +1,22 @@
 /**
- * The building blocks reused by most payloads of the API - stored files, dynamic values and the caller identity.
+ * The vocabulary of the inventory - the words this product uses, on top of the ones the platform shares.
+ *
+ * Everything that more than one product means the same thing by lives in the shared library and is re-stated
+ * here, so that a page of the inventory imports its whole vocabulary from one place rather than having to
+ * know which half of it happens to be shared.
  */
 
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
-
-type ArtifactKind = 'raw' | 'parsed' | 'parsed_additional' | 'additional'
-
-type FieldType =
-  | 'string'
-  | 'text'
-  | 'number'
-  | 'integer'
-  | 'boolean'
-  | 'date'
-  | 'datetime'
-  | 'enum'
-  | 'file'
-  | 'json'
-  | 'coordinate'
+export type {
+  Artifact,
+  ArtifactKind,
+  Coordinate,
+  FieldType,
+  JsonValue,
+  MetadataAttribute,
+  ObjectTypeReference,
+  OperationResult,
+  PageResponse,
+} from '@truth-platform/core-ui'
 
 type EventStatus = 'draft' | 'raw' | 'parsed' | 'partial' | 'failed' | 'archived'
 
@@ -27,75 +26,10 @@ type ExperimentResult = 'successful' | 'partial' | 'failed'
 
 type ParseState = 'all' | 'parsed' | 'not_parsed'
 
+/** Which half of a document a declaration describes, narrowed to the two halves this product has. */
 type FieldScope = 'event' | 'entity'
-
-/** A point on the globe, held as the three numbers the map picker hands back. */
-type Coordinate = {
-  lon: number
-  lat: number
-  alt: number | null
-}
 
 /** A built in event field that only the event types declaring it ask for. */
 type OptionalEventField = 'reference_id' | 'event_date' | 'experiment_result' | 'notes'
 
-type ObjectTypeReference = {
-  id: string
-  name: string
-}
-
-type Artifact = {
-  id: string
-  name: string
-  path: string
-  descriptor: string
-  kind: ArtifactKind
-  suffix: string
-  folder: string | null
-  source: string | null
-  size_bytes: number
-  content_type: string
-  checksum: string | null
-  /** Who put the file into the bucket. Files stored before the field existed carry nothing. */
-  uploaded_by: string | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-type MetadataAttribute = {
-  key: string
-  value: JsonValue
-  type: FieldType
-}
-
-interface OperationResult {
-  success: boolean
-  message: string
-  affected: number
-}
-
-interface PageResponse<ItemT> {
-  items: ItemT[]
-  total: number
-  page: number
-  page_size: number
-  pages: number
-}
-
-export type {
-  Artifact,
-  ArtifactKind,
-  Coordinate,
-  EntityStatus,
-  EventStatus,
-  ExperimentResult,
-  FieldScope,
-  FieldType,
-  JsonValue,
-  MetadataAttribute,
-  ObjectTypeReference,
-  OperationResult,
-  OptionalEventField,
-  PageResponse,
-  ParseState,
-}
+export type { EntityStatus, EventStatus, ExperimentResult, FieldScope, OptionalEventField, ParseState }

@@ -299,9 +299,9 @@
 <script lang="ts">
 import type { FieldType, OptionalEventField } from '@/models/common'
 import type { EntityType } from '@/models/entity'
-import { humanizeKey, slugify } from '@skyscanner/sky-ui'
+import { humanizeKey, slugify } from '@truth-platform/core-ui'
 import type { EventType } from '@/models/event'
-import type { FieldDefinition } from '@/models/field'
+import type { FieldDefinition } from '@truth-platform/core-ui'
 import type { Platform } from '@/models/platform'
 
 /** What the page declares, where a field is not a type at all but is declared from the very same place. */
@@ -385,7 +385,7 @@ const SHARED_LABEL = 'shared'
 import { computed, onMounted, ref, watch } from 'vue'
 
 import AppHeader from '@/components/AppHeader.vue'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import {
   createEntityType,
@@ -399,7 +399,7 @@ import {
   listFields,
   listPlatforms,
 } from '@/requests/schema'
-import { ENTER_TO_ADD_HINT } from '@/utils/hints'
+import { ENTER_TO_ADD_HINT } from '@truth-platform/core-ui'
 
 const { industries } = useIndustries()
 const { notify, reportError } = useSnackbar()

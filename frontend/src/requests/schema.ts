@@ -5,7 +5,7 @@
 import type { FieldScope, FieldType, JsonValue, OptionalEventField } from '@/models/common'
 import type { EntityType } from '@/models/entity'
 import type { EventType } from '@/models/event'
-import type { FieldConstraint, FieldDefinition, FieldDependency, FieldMetadata } from '@/models/field'
+import type { FieldConstraint, FieldDefinition, FieldDependency, FieldMetadata } from '@truth-platform/core-ui'
 import type { Industry, IndustryUpdateRequest } from '@/models/industry'
 import type { Platform, PlatformDraft } from '@/models/platform'
 import { client } from '@/requests/client'

@@ -1,16 +1,18 @@
 /**
- * The payloads of the generated tables, re-exported from the grid library so that pages import them from one place.
+ * The payloads of the generated tables, together with the row shape the inventory flattens its events into.
  */
 
-import type {
+export type {
+  DetailGridRow,
+  FilesCellValue,
   FilterOption,
   GeneratedColumn,
   GeneratedGridConfiguration,
   GridRow,
   GridRowsPage,
-} from '@skyscanner/ag-grid-ts'
+} from '@truth-platform/core-ui'
 
-import type { Artifact } from './common'
+import type { GridRow } from '@truth-platform/core-ui'
 
 interface EventGridRow extends GridRow {
   event_id: number
@@ -23,21 +25,4 @@ interface EventGridRow extends GridRow {
   created_at: string
 }
 
-interface DetailGridRow extends GridRow {
-  parentId: string
-}
-
-interface FilesCellValue {
-  files: Artifact[]
-}
-
-export type {
-  DetailGridRow,
-  EventGridRow,
-  FilesCellValue,
-  FilterOption,
-  GeneratedColumn,
-  GeneratedGridConfiguration,
-  GridRow,
-  GridRowsPage,
-}
+export type { EventGridRow }

@@ -52,7 +52,7 @@
 
 <script lang="ts">
 import type { Artifact } from '@/models/common'
-import { fileIcon, formatBytes } from '@skyscanner/sky-ui'
+import { fileIcon, formatBytes } from '@truth-platform/core-ui'
 
 interface Props {
   /** Everything the owner holds today, which is what the list renders. */

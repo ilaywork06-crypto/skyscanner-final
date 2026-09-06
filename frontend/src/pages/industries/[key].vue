@@ -26,7 +26,7 @@
         <h1 class="industry-page__title">
           {{ industryName }}
         </h1>
-        <SkyChip
+        <UiChip
           :label="`${eventCount} events`"
           token="chip-platform"
         />
@@ -42,7 +42,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { SkyChip } from '@skyscanner/sky-ui'
+import { UiChip } from '@truth-platform/core-ui'
 import { useRoute, useRouter } from 'vue-router'
 
 import AppHeader from '@/components/AppHeader.vue'

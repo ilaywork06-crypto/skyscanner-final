@@ -113,9 +113,8 @@ const BROAD_DEFAULT_TRIGGERS: SubscriptionTrigger[] = ['event_created', 'entity_
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import UnsavedChangesDialog from '@/components/UnsavedChangesDialog.vue'
-import { useDirtyGuard } from '@/composables/useDirtyGuard'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useDirtyGuard } from '@truth-platform/core-ui'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { createSubscription } from '@/requests/subscriptions'
 
 const props = withDefaults(defineProps<Props>(), {

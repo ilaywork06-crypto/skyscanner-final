@@ -75,11 +75,11 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { formatDateTime, humanizeKey } from '@skyscanner/sky-ui'
+import { formatDateTime, humanizeKey } from '@truth-platform/core-ui'
 
 import AppHeader from '@/components/AppHeader.vue'
 import SubscribeDialog from '@/components/SubscribeDialog.vue'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import type { Subscription } from '@/models/subscription'
 import { deleteSubscription, listSubscriptions } from '@/requests/subscriptions'

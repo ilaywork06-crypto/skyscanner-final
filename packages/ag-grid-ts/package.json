@@ -1,5 +1,5 @@
 {
-  "name": "@skyscanner/ag-grid-ts",
+  "name": "@truth-platform/ag-grid-ts",
   "version": "0.1.0",
   "private": true,
   "type": "module",

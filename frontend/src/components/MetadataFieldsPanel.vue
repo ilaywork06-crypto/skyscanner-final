@@ -113,8 +113,8 @@
 
 <script lang="ts">
 import type { FieldType, JsonValue } from '@/models/common'
-import { EMPTY_PLACEHOLDER } from '@skyscanner/sky-ui'
-import type { FieldDefinition } from '@/models/field'
+import { EMPTY_PLACEHOLDER } from '@truth-platform/core-ui'
+import type { FieldDefinition } from '@truth-platform/core-ui'
 
 interface Props {
   modelValue: Record<string, JsonValue>
@@ -164,8 +164,7 @@ const NONE_APPLY = 'None of the declared fields apply to what has been filled in
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import DynamicFieldInput from '@/components/DynamicFieldInput.vue'
-import { applicableFields } from '@/utils/dependencies'
+import { applicableFields } from '@truth-platform/core-ui'
 
 const props = withDefaults(defineProps<Props>(), {
   title: 'Metadata fields',

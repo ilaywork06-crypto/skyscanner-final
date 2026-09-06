@@ -85,7 +85,7 @@
 
 <script lang="ts">
 import type { Artifact } from '@/models/common'
-import { EMPTY_PLACEHOLDER, fileIcon, formatBytes, formatDateTime } from '@skyscanner/sky-ui'
+import { EMPTY_PLACEHOLDER, fileIcon, formatBytes, formatDateTime } from '@truth-platform/core-ui'
 import type { EntityResponse } from '@/models/entity'
 
 interface Props {

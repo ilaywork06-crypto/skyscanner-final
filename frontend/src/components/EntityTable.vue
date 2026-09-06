@@ -195,10 +195,8 @@ const MIN_WIDTH_SHARE = 0.75
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import AttributesTable from '@/components/AttributesTable.vue'
-import DynamicCell from '@/components/DynamicCell.vue'
-import { attributeColumns } from '@/utils/grid-columns'
-import { readText } from '@/utils/rows'
+import { attributeColumns } from '@truth-platform/core-ui'
+import { readText } from '@truth-platform/core-ui'
 
 const props = withDefaults(defineProps<Props>(), { industries: () => [], downloading: false })
 const emit = defineEmits<Emits>()

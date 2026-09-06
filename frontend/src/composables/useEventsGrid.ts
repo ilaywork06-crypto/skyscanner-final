@@ -2,7 +2,7 @@
  * The composable that binds the generated inventory table to the API and to the actions of the toolbar.
  */
 
-import { createGridController, type GridController, type RowsQuery } from '@skyscanner/ag-grid-ts'
+import { createGridController, type GridController, type RowsQuery } from '@truth-platform/ag-grid-ts'
 
 import type { ParseState } from '@/models/common'
 import type { GeneratedGridConfiguration, GridRow, GridRowsPage } from '@/models/grid'

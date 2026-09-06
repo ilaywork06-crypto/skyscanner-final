@@ -18,6 +18,7 @@ import '@fontsource/kufam/600.css'
 import '@fontsource/kufam/700.css'
 import 'vuetify/styles'
 
+import { configureMapTiles, configureThemes } from '@truth-platform/core-ui'
 import { createVuetify, type ThemeDefinition } from 'vuetify'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
 
@@ -129,6 +130,15 @@ const lightTheme: ThemeDefinition = {
     'status-partial': '#FF7F50',
   },
 }
+
+/* The shared theme switch has no way of knowing what this product called its two themes, so it is told. */
+configureThemes({ dark: DARK_THEME_NAME, light: LIGHT_THEME_NAME, storageKey: 'skyscanner.theme' })
+
+/* The map of the coordinate field is drawn from whichever tile server this deployment was given. */
+configureMapTiles({
+  url: import.meta.env.VITE_MAP_TILE_URL ?? '',
+  attribution: import.meta.env.VITE_MAP_ATTRIBUTION ?? '',
+})
 
 const vuetify = createVuetify({
   icons: { defaultSet: 'mdi', aliases, sets: { mdi } },

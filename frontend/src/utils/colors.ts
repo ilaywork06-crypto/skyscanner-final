@@ -1,28 +1,13 @@
 /**
- * The mapping between the values of the inventory and the theme colour tokens their chips are painted with.
+ * The mapping between the states of the inventory and the theme colour tokens their chips are painted with.
+ *
+ * What an industry is coloured is decided by the shared palette, because every product colours a vocabulary
+ * the same way. What a status means is decided here, because only this product has these statuses.
  */
 
+import { DEFAULT_TOKEN } from '@truth-platform/core-ui'
+
 import type { EntityStatus, EventStatus, ExperimentResult } from '@/models/common'
-import type { Industry } from '@/models/industry'
-
-const INDUSTRY_PALETTE: string[] = [
-  'chip-industry-amber',
-  'chip-industry-blue',
-  'chip-industry-violet',
-  'chip-industry-rose',
-  'chip-industry-coral',
-  'chip-industry-green',
-]
-
-/** What each industry colour is called where one is picked, in the order the picker offers them. */
-const INDUSTRY_COLOUR_NAMES: Record<string, string> = {
-  'chip-industry-amber': 'Amber',
-  'chip-industry-blue': 'Blue',
-  'chip-industry-violet': 'Violet',
-  'chip-industry-rose': 'Rose',
-  'chip-industry-coral': 'Coral',
-  'chip-industry-green': 'Green',
-}
 
 const EVENT_STATUS_TOKENS: Record<EventStatus, string> = {
   draft: 'status-neutral',
@@ -52,8 +37,6 @@ const EXPERIMENT_RESULT_TOKENS: Record<ExperimentResult, string> = {
   failed: 'status-negative',
 }
 
-const DEFAULT_TOKEN = 'app-muted'
-
 /**
  * Pick the colour token of a status chip, whichever kind of status it carries.
  */
@@ -75,46 +58,7 @@ const experimentResultToken = (result: string): string =>
 /**
  * Pick the colour token of a chip that a generated column asked for by palette name.
  */
-const paletteToken = (palette: string | undefined, value: string): string =>
+const paletteToken = (value: string, palette: string | undefined): string =>
   palette === 'experiment' ? experimentResultToken(value) : statusToken(value)
 
-/**
- * Pick the colour token of an industry chip, preferring the colour the industry was registered with.
- */
-const industryToken = (industryKey: string, industries: Industry[]): string => {
-  const industry = industries.find((candidate) => candidate.key === industryKey)
-  if (industry !== undefined && industry.color.length > 0) {
-    if (industry.color.startsWith('chip-')) {
-      return industry.color
-    }
-
-    return `chip-industry-${industry.color.replace('industry', '').toLowerCase()}`
-  }
-
-  const index = Math.abs(hashText(industryKey)) % INDUSTRY_PALETTE.length
-
-  return INDUSTRY_PALETTE[index]
-}
-
-/**
- * Turn a piece of text into a stable number, so that the same value always gets the same colour.
- */
-const hashText = (value: string): number => {
-  let hash = 0
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash << 5) - hash + value.charCodeAt(index)
-    hash |= 0
-  }
-
-  return hash
-}
-
-export {
-  INDUSTRY_COLOUR_NAMES,
-  INDUSTRY_PALETTE,
-  experimentResultToken,
-  hashText,
-  paletteToken,
-  statusToken,
-  industryToken,
-}
+export { experimentResultToken, paletteToken, statusToken }

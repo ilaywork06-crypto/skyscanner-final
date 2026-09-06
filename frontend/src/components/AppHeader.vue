@@ -152,7 +152,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 
-import { useAppTheme } from '@/composables/useAppTheme'
+import { useAppTheme } from '@truth-platform/core-ui'
 import { SUBSCRIPTIONS_ENABLED } from '@/features'
 
 const { isDark, toggle } = useAppTheme()

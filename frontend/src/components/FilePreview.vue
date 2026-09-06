@@ -108,7 +108,7 @@
 
 <script lang="ts">
 import type { Artifact } from '@/models/common'
-import type { SheetContent } from '@/utils/sheets'
+import type { SheetContent } from '@truth-platform/core-ui'
 
 interface Props {
   artifact: Artifact
@@ -155,7 +155,7 @@ const TOO_LARGE = 'This file is too large to be shown in the browser.'
 import { computed, ref, watch } from 'vue'
 
 import { buildContentUrl } from '@/requests/storage'
-import { delimiterOf, parseDelimited, readWorkbook } from '@/utils/sheets'
+import { delimiterOf, parseDelimited, readWorkbook } from '@truth-platform/core-ui'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()

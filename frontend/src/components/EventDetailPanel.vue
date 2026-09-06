@@ -123,16 +123,16 @@ interface EntityGroup {
 import { computed, onMounted, ref, watch } from 'vue'
 
 import AddEntityDialog from '@/components/AddEntityDialog.vue'
-import AttributesTable from '@/components/AttributesTable.vue'
 import EntityTable from '@/components/EntityTable.vue'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import { listEntities } from '@/requests/entities'
 import { readEvent } from '@/requests/events'
 import { readEntityColumns, readEventColumns } from '@/requests/grid'
 import { downloadEntityArchive, toArchiveSources } from '@/requests/storage'
-import { attributeColumns } from '@/utils/grid-columns'
-import { entityToRow, readText } from '@/utils/rows'
+import { attributeColumns } from '@truth-platform/core-ui'
+import { readText } from '@truth-platform/core-ui'
+import { entityToRow } from '@/utils/rows'
 
 const props = withDefaults(defineProps<Props>(), { entities: null })
 const emit = defineEmits<Emits>()

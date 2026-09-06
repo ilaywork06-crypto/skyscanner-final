@@ -32,10 +32,10 @@
           :for="`${idPrefix}-name`"
         >
           <span class="entity-form__required">*</span>Name
-          <SkyInfoIcon label="What Name means">
+          <UiInfoIcon label="What Name means">
             A short name that tells this entity apart from the others in the same event, for example
             Front camera telemetry.
-          </SkyInfoIcon>
+          </UiInfoIcon>
         </label>
         <v-text-field
           :id="`${idPrefix}-name`"
@@ -57,13 +57,13 @@
           :for="`${idPrefix}-module`"
         >
           Module
-          <SkyInfoIcon label="What Module means">
+          <UiInfoIcon label="What Module means">
             {{
               modules.length > 0
                 ? 'The system or sensor module the data came from. The list is declared for this industry.'
                 : 'The system or sensor module the data came from. This industry has declared no list yet, so any text is accepted.'
             }}
-          </SkyInfoIcon>
+          </UiInfoIcon>
         </label>
         <v-select
           v-if="modules.length > 0"
@@ -99,9 +99,9 @@
           :for="`${idPrefix}-status`"
         >
           Status
-          <SkyInfoIcon label="What Status means">
+          <UiInfoIcon label="What Status means">
             {{ statusExplanation }}
-          </SkyInfoIcon>
+          </UiInfoIcon>
         </label>
         <v-select
           :id="`${idPrefix}-status`"
@@ -123,10 +123,10 @@
           :for="`${idPrefix}-version`"
         >
           Code version
-          <SkyInfoIcon label="What Code version means">
+          <UiInfoIcon label="What Code version means">
             The version of the code that produced this data, so that a result can be traced back to what
             ran, for example v2.4.1 or the commit it was built from.
-          </SkyInfoIcon>
+          </UiInfoIcon>
         </label>
         <v-text-field
           :id="`${idPrefix}-version`"
@@ -141,12 +141,12 @@
       <div class="entity-form__field entity-form__field--wide">
         <label class="entity-form__label">
           Notes
-          <SkyInfoIcon label="What Notes means">
+          <UiInfoIcon label="What Notes means">
             One note per row. Press the add button for another one, and each row is shown as its own bullet
             when the entity is read.
-          </SkyInfoIcon>
+          </UiInfoIcon>
         </label>
-        <SkyNotesInput
+        <UiNotesInput
           :model-value="modelValue.notes"
           placeholder="Enter a note"
           @update:model-value="patch({ notes: $event })"
@@ -186,9 +186,9 @@
 
 <script lang="ts">
 import type { EntityStatus, FieldType, JsonValue } from '@/models/common'
-import { SkyDropzone as FileDropzone, SkyInfoIcon, SkyNotesInput, humanizeKey } from '@skyscanner/sky-ui'
+import { UiDropzone as FileDropzone, UiInfoIcon, UiNotesInput, humanizeKey } from '@truth-platform/core-ui'
 import type { EntityType } from '@/models/entity'
-import type { FieldDefinition } from '@/models/field'
+import type { FieldDefinition } from '@truth-platform/core-ui'
 
 /** Everything one entity is described by, in the shape both callers keep it in. */
 interface EntityFormValue {

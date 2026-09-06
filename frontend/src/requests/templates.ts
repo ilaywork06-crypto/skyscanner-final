@@ -4,14 +4,14 @@
 
 import type { FieldScope } from '@/models/common'
 import type { EventExportRequest } from '@/models/query'
-import type { TableTemplate, TemplateCreateRequest } from '@/models/template'
+import type { TableTemplate, TemplateCreateRequest } from '@truth-platform/core-ui'
 import { client } from '@/requests/client'
 import {
   createLocalTemplate,
   deleteLocalTemplate,
   isLocalTemplate,
   listLocalTemplates,
-} from '@/utils/local-templates'
+} from '@truth-platform/core-ui'
 
 const TEMPLATES_PATH = '/templates'
 

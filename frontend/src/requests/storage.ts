@@ -13,7 +13,7 @@ import type {
   UploadOptions,
 } from '@/models/storage'
 import { API_BASE_URL, UPLOAD_TIMEOUT_MS, client } from '@/requests/client'
-import { downloadBlob, openLink } from '@/utils/download'
+import { downloadBlob, openLink } from '@truth-platform/core-ui'
 
 const STORAGE_PATH = '/storage/artifacts'
 

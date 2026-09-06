@@ -275,9 +275,9 @@
 
 <script lang="ts">
 import type { FieldType } from '@/models/common'
-import { slugify } from '@skyscanner/sky-ui'
+import { slugify } from '@truth-platform/core-ui'
 import type { EntityType } from '@/models/entity'
-import type { DependencyOperator, FieldDefinition, FieldDependency } from '@/models/field'
+import type { DependencyOperator, FieldDefinition, FieldDependency } from '@truth-platform/core-ui'
 
 interface SelectItem {
   title: string
@@ -312,11 +312,11 @@ const SHARED_LABEL = 'shared'
 import { computed, onMounted, ref, watch } from 'vue'
 
 import AppHeader from '@/components/AppHeader.vue'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import { client } from '@/requests/client'
 import { listEntityTypes, listFields } from '@/requests/schema'
-import { ENTER_TO_ADD_HINT } from '@/utils/hints'
+import { ENTER_TO_ADD_HINT } from '@truth-platform/core-ui'
 
 /*
  * The two halves of an entity form. Both are stored in the same place and both become columns of the entity

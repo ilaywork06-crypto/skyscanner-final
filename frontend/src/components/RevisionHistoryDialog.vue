@@ -55,7 +55,7 @@
             class="history__entry"
           >
             <div class="history__entry-head">
-              <SkyChip
+              <UiChip
                 :label="`v${revision.version}`"
                 token="chip-platform"
               />
@@ -105,8 +105,8 @@
 
 <script lang="ts">
 import type { JsonValue } from '@/models/common'
-import { EMPTY_PLACEHOLDER, SkyChip, formatDateTime } from '@skyscanner/sky-ui'
-import type { Revision } from '@/models/revision'
+import { EMPTY_PLACEHOLDER, UiChip, formatDateTime } from '@truth-platform/core-ui'
+import type { Revision } from '@truth-platform/core-ui'
 
 interface Props {
   modelValue: boolean
@@ -123,7 +123,7 @@ interface Emits {
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { listEntityRevisions, listEventRevisions } from '@/requests/revisions'
 
 const props = withDefaults(defineProps<Props>(), { entityId: null, title: 'Edit history' })

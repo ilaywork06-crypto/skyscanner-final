@@ -4,36 +4,9 @@
 
 import type { JsonValue, ParseState } from './common'
 
-type SortDirection = 'asc' | 'desc'
+export type { FilterCondition, FilterOperator, SortDirection, SortSpecification } from '@truth-platform/core-ui'
 
-type FilterOperator =
-  | 'equals'
-  | 'not_equals'
-  | 'contains'
-  | 'not_contains'
-  | 'starts_with'
-  | 'ends_with'
-  | 'greater_than'
-  | 'greater_or_equal'
-  | 'less_than'
-  | 'less_or_equal'
-  | 'in'
-  | 'not_in'
-  | 'between'
-  | 'is_empty'
-  | 'is_not_empty'
-
-interface FilterCondition {
-  key: string
-  operator: FilterOperator
-  value: JsonValue
-  values: JsonValue[]
-}
-
-interface SortSpecification {
-  key: string
-  direction: SortDirection
-}
+import type { FilterCondition, SortSpecification } from '@truth-platform/core-ui'
 
 interface SearchQuery {
   search: string | null
@@ -53,12 +26,7 @@ interface EventExportRequest extends GridRowsRequest {
   event_ids: string[]
 }
 
-export type {
-  EventExportRequest,
-  FilterCondition,
-  FilterOperator,
-  GridRowsRequest,
-  SearchQuery,
-  SortDirection,
-  SortSpecification,
-}
+/** Kept so that a caller which only needs the JSON vocabulary does not reach past this module for it. */
+type QueryValue = JsonValue
+
+export type { EventExportRequest, GridRowsRequest, QueryValue, SearchQuery }

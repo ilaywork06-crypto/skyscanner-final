@@ -42,7 +42,7 @@
 
     <ActiveFilters
       :search="controller.search.value"
-      :parse-state="parseState"
+      :scope="parseScope"
       :filters="controller.filterConditions.value"
       :columns="columns"
       @remove="onRemoveFilter"
@@ -239,14 +239,14 @@
 
 <script lang="ts">
 import type { FilterModel, SortModelItem } from 'ag-grid-community'
-import type { FilterChip } from '@/components/ActiveFilters.vue'
+import type { FilterChip, ScopeFilter } from '@truth-platform/core-ui'
 import type { GridColumnLayout } from '@/components/EventsGrid.vue'
 import type { ExportChoice } from '@/components/EventsToolbar.vue'
-import type { QuickFilterChoice } from '@/components/QuickFilters.vue'
+import type { QuickFilterChoice } from '@truth-platform/core-ui'
 import type { Artifact, ParseState } from '@/models/common'
 import type { GeneratedColumn } from '@/models/grid'
 import type { SortDirection, SortSpecification } from '@/models/query'
-import type { TableTemplate, TemplateColumn } from '@/models/template'
+import type { TableTemplate, TemplateColumn } from '@truth-platform/core-ui'
 
 interface Props {
   industry: string | null
@@ -265,21 +265,18 @@ const ESCAPE_KEY = 'Escape'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import ActiveFilters from '@/components/ActiveFilters.vue'
 import CreateEventDialog from '@/components/CreateEventDialog.vue'
 import EventsGrid from '@/components/EventsGrid.vue'
 import EventsToolbar from '@/components/EventsToolbar.vue'
 import FileViewerDialog from '@/components/FileViewerDialog.vue'
-import PaginationBar from '@/components/PaginationBar.vue'
-import QuickFilters from '@/components/QuickFilters.vue'
 import ExpandedRows from '@/components/inventory/ExpandedRows.vue'
 import { buildExportRequest, useEventsGrid } from '@/composables/useEventsGrid'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import { downloadArtifact } from '@/requests/storage'
 import { createTemplate, downloadEventFiles, exportEvents, listTemplates } from '@/requests/templates'
-import { readActiveTemplate, writeActiveTemplate } from '@/utils/active-template'
-import { downloadBlob } from '@/utils/download'
+import { readActiveTemplate, writeActiveTemplate } from '@truth-platform/core-ui'
+import { downloadBlob } from '@truth-platform/core-ui'
 
 const props = defineProps<Props>()
 
@@ -326,6 +323,13 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const columns = computed<GeneratedColumn[]>(() => controller.configuration.value?.columns ?? [])
 const parseState = computed<ParseState>(() => controller.parseState.value as ParseState)
+
+/** What the parse toggle is currently narrowing the rows to, shown as a chip beside the column filters. */
+const PARSE_LABELS: Record<ParseState, string> = { all: 'All', parsed: 'Parsed', not_parsed: 'Not parsed' }
+
+const parseScope = computed<ScopeFilter | null>(() =>
+  parseState.value === 'all' ? null : { field: 'Show', value: PARSE_LABELS[parseState.value] },
+)
 const sortKey = computed<string>(() => controller.sortSpecifications.value[0]?.key ?? 'created_at')
 const sortDirection = computed<SortDirection>(() => controller.sortSpecifications.value[0]?.direction ?? 'desc')
 const pendingTemplateName = computed<string>(() => pendingTemplate.value?.name ?? '')

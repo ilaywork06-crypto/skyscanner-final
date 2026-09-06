@@ -22,8 +22,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@skyscanner/ag-grid-ts": ["../packages/ag-grid-ts/src/index.ts"],
-      "@skyscanner/sky-ui": ["../packages/sky-ui/src/index.ts"]
+      "@truth-platform/ag-grid-ts": ["../packages/ag-grid-ts/src/index.ts"],
+      "@truth-platform/core-ui": ["../packages/core-ui/src/index.ts"]
     }
   },
   "include": [
@@ -32,7 +32,7 @@
     "src/**/*.vue",
     "vite.config.ts",
     "../packages/ag-grid-ts/src/**/*.ts",
-    "../packages/sky-ui/src/**/*.ts",
-    "../packages/sky-ui/src/**/*.vue"
+    "../packages/core-ui/src/**/*.ts",
+    "../packages/core-ui/src/**/*.vue"
   ]
 }

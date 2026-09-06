@@ -1,0 +1,1 @@
+import{x as t}from"./index-CNangZWD.js";const n=s=>{const e=t(!1);return{confirmOpen:e,attemptClose:()=>{if(!s.isDirty()){s.close();return}e.value=!0},discard:()=>{e.value=!1,s.close()},cancel:()=>{e.value=!1}}};export{n as u};

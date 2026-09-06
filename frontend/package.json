@@ -15,7 +15,7 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/kufam": "^5.3.0",
     "@mdi/font": "^7.4.47",
-    "@skyscanner/ag-grid-ts": "*",
+    "@truth-platform/ag-grid-ts": "*",
     "ag-grid-community": "^33.3.2",
     "ag-grid-vue3": "^33.3.2",
     "axios": "^1.7.9",

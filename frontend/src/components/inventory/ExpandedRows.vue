@@ -66,7 +66,7 @@ export type { ExpandedChip }
 import { computed } from 'vue'
 
 import { findRowById } from '@/composables/useEventsGrid'
-import { readText } from '@/utils/rows'
+import { readText } from '@truth-platform/core-ui'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()

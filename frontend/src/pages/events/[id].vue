@@ -107,14 +107,14 @@
           class="event-page__fact"
         >
           <span class="event-page__fact-label">RESULT</span>
-          <SkyChip
+          <UiChip
             :label="humanizeKey(event.experiment_result)"
             :token="experimentResultToken(event.experiment_result)"
           />
         </div>
         <div class="event-page__fact">
           <span class="event-page__fact-label">INDUSTRY</span>
-          <SkyChip
+          <UiChip
             :label="event.industry"
             :token="industryChipToken"
           />
@@ -126,7 +126,7 @@
         >
           <span class="event-page__fact-label">PLATFORM</span>
           <span class="event-page__fact-chips">
-            <SkyChip
+            <UiChip
               v-for="platform in event.platforms"
               :key="platform"
               :label="platform"
@@ -307,7 +307,7 @@
 
 <script lang="ts">
 import type { Artifact, EventStatus } from '@/models/common'
-import { SkyChip, formatDate, formatDateTime, humanizeKey } from '@skyscanner/sky-ui'
+import { UiChip, formatDate, formatDateTime, humanizeKey } from '@truth-platform/core-ui'
 import type { EntityResponse } from '@/models/entity'
 import type { EventDetail } from '@/models/event'
 import type { GeneratedColumn, GridRow } from '@/models/grid'
@@ -331,15 +331,16 @@ import EventFileTree from '@/components/EventFileTree.vue'
 import FilePreview from '@/components/FilePreview.vue'
 import RevisionHistoryDialog from '@/components/RevisionHistoryDialog.vue'
 import SubscribeDialog from '@/components/SubscribeDialog.vue'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import { SUBSCRIPTIONS_ENABLED } from '@/features'
 import { deleteEvent, readEvent, updateEvent } from '@/requests/events'
 import { readEntityColumns } from '@/requests/grid'
 import { downloadArtifact, downloadEntityArchive, toArchiveSources } from '@/requests/storage'
 import { downloadEventFiles } from '@/requests/templates'
-import { downloadBlob } from '@/utils/download'
-import { experimentResultToken, industryToken } from '@/utils/colors'
+import { downloadBlob } from '@truth-platform/core-ui'
+import { taxonomyToken } from '@truth-platform/core-ui'
+import { experimentResultToken } from '@/utils/colors'
 import { entityToRow } from '@/utils/rows'
 
 const STATUS_OPTIONS: EventStatus[] = ['draft', 'raw', 'parsed', 'partial', 'failed', 'archived']
@@ -369,7 +370,7 @@ const typeNames = computed<string>(() =>
 )
 
 const industryChipToken = computed<string>(() =>
-  event.value === null ? 'chip-industry-violet' : industryToken(event.value.industry, industries.value),
+  event.value === null ? 'chip-industry-violet' : taxonomyToken(event.value.industry, industries.value),
 )
 
 const entityGroups = computed<EntityGroup[]>(() => {

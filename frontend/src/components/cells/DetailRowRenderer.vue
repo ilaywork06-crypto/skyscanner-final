@@ -36,8 +36,8 @@ interface Props {
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import EventDetailPanel from '@/components/EventDetailPanel.vue'
-import { provideSearchTerm, readContext } from '@/utils/grid-context'
-import { readText } from '@/utils/rows'
+import { provideSearchTerm, readContext } from '@truth-platform/core-ui'
+import { readText } from '@truth-platform/core-ui'
 
 const props = defineProps<Props>()
 

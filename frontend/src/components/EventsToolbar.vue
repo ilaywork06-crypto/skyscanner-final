@@ -315,7 +315,7 @@
 import type { ParseState } from '@/models/common'
 import type { GeneratedColumn } from '@/models/grid'
 import type { SortDirection, SortSpecification } from '@/models/query'
-import type { TableTemplate } from '@/models/template'
+import type { TableTemplate } from '@truth-platform/core-ui'
 
 interface Props {
   search: string

@@ -2,7 +2,7 @@
  * Every call that reads the edit history of an event or of one of its entities.
  */
 
-import type { Revision } from '@/models/revision'
+import type { Revision } from '@truth-platform/core-ui'
 import { client } from '@/requests/client'
 
 /**

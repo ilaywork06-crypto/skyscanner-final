@@ -46,7 +46,7 @@
 
 <script lang="ts">
 import type { Artifact } from '@/models/common'
-import { formatBytes } from '@skyscanner/sky-ui'
+import { formatBytes } from '@truth-platform/core-ui'
 
 interface Props {
   modelValue: boolean

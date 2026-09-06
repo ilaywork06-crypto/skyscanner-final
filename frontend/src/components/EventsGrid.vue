@@ -12,6 +12,7 @@
       :column-defs="columnDefs"
       :row-data="rows"
       :context="context"
+      :theme="gridTheme"
       @grid-ready="onGridReady"
       @sort-changed="onModelChanged"
       @filter-changed="onModelChanged"
@@ -68,7 +69,7 @@ import type { Artifact } from '@/models/common'
 import type { GeneratedGridConfiguration, GridRow } from '@/models/grid'
 import type { Industry } from '@/models/industry'
 import type { FilterCondition, SortDirection, SortSpecification } from '@/models/query'
-import type { GridContext } from '@/utils/grid-context'
+import type { GridContext } from '@truth-platform/core-ui'
 
 interface Props {
   configuration: GeneratedGridConfiguration | null
@@ -170,20 +171,27 @@ import {
   buildGridOptions,
   isDetailRow,
   parseColumnDefinitions,
-} from '@skyscanner/ag-grid-ts'
+} from '@truth-platform/ag-grid-ts'
 import { AgGridVue } from 'ag-grid-vue3'
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 
+import { buildGridTheme, useAppTheme, useCellRenderers, useColumnFilters } from '@truth-platform/core-ui'
+
 import DetailRowRenderer from '@/components/cells/DetailRowRenderer.vue'
+import EventLinkCellRenderer from '@/components/cells/EventLinkCellRenderer.vue'
+import FilesCellRenderer from '@/components/cells/FilesCellRenderer.vue'
+import OpenEventCellRenderer from '@/components/cells/OpenEventCellRenderer.vue'
 import StickyScrollBar from '@/components/inventory/StickyScrollBar.vue'
-import { useAppTheme } from '@/composables/useAppTheme'
-import { useCellRenderers, useColumnFilters } from '@/composables/useCellRenderers'
-import { buildGridTheme } from '@/utils/grid-theme'
+import { paletteToken } from '@/utils/colors'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-const registry = useCellRenderers()
+/*
+ * The renderers every table shares come from the library; the three that only this product can draw - a link
+ * into an event, the files of one, the button that opens it - are registered here on top of them.
+ */
+const registry = useCellRenderers({ EventLinkCellRenderer, FilesCellRenderer, OpenEventCellRenderer })
 const filterRegistry = useColumnFilters()
 const { colors, isDark } = useAppTheme()
 const gridApi = shallowRef<GridApi<GridRow> | null>(null)
@@ -198,10 +206,11 @@ const scrollViewport = shallowRef<HTMLElement | null>(null)
 let restoringView = false
 
 const context = computed<InventoryGridContext>(() => ({
-  industries: props.industries,
+  taxonomy: props.industries,
   expandedIds: props.expandedIds,
   toggleExpanded: (rowId: string) => emit('toggle-expanded', rowId),
-  openEvent: (rowId: string) => emit('open-event', rowId),
+  openRow: (rowId: string) => emit('open-event', rowId),
+  tokenFor: paletteToken,
   openArtifact: (artifact: Artifact) => emit('open-artifact', artifact),
   downloadArtifact: (artifact: Artifact) => emit('download', artifact),
   findRow: (rowId: string) => props.sourceRows.find((row) => String(row.id) === rowId),
@@ -307,6 +316,15 @@ const filterComponents = computed<Record<string, string>>(() => {
   return components
 })
 
+/*
+ * The palette of the table is bound as a prop of its own rather than folded into the grid options.
+ *
+ * The options are read once, when the grid builds itself, so a theme that lived in them stayed on whichever
+ * one was active at that moment - switching to the light theme repainted the page around a table still
+ * lettered for the dark one. As a prop it is watched, and the table follows the switch.
+ */
+const gridTheme = computed(() => buildGridTheme(colors.value, isDark.value))
+
 const gridOptions = computed<GridOptions<GridRow> | null>(() => {
   if (props.configuration === null) {
     return null
@@ -323,7 +341,6 @@ const gridOptions = computed<GridOptions<GridRow> | null>(() => {
 
   return {
     ...options,
-    theme: buildGridTheme(colors.value, isDark.value),
     domLayout: layoutOf(props.pinned),
     suppressNoRowsOverlay: true,
     fullWidthCellRenderer: DetailRowRenderer,

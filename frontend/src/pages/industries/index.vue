@@ -35,7 +35,7 @@
           class="industries__card"
         >
           <div class="industries__card-head">
-            <SkyChip
+            <UiChip
               :label="industry.name"
               :token="tokenFor(industry.key)"
             />
@@ -178,8 +178,8 @@
 
 <script lang="ts">
 import type { Industry } from '@/models/industry'
-import { SkyChip, slugify } from '@skyscanner/sky-ui'
-import { INDUSTRY_COLOUR_NAMES, INDUSTRY_PALETTE, industryToken } from '@/utils/colors'
+import { UiChip, slugify } from '@truth-platform/core-ui'
+import { CHIP_COLOUR_NAMES, CHIP_PALETTE, taxonomyToken } from '@truth-platform/core-ui'
 
 interface ColorItem {
   title: string
@@ -190,8 +190,8 @@ interface ColorItem {
  * The colours on offer are the palette itself rather than a second copy of it, so that a token added to the
  * theme is offered here without anybody having to remember this list exists.
  */
-const COLOR_ITEMS: ColorItem[] = INDUSTRY_PALETTE.map((token) => ({
-  title: INDUSTRY_COLOUR_NAMES[token] ?? token,
+const COLOR_ITEMS: ColorItem[] = CHIP_PALETTE.map((token) => ({
+  title: CHIP_COLOUR_NAMES[token] ?? token,
   value: token,
 }))
 </script>
@@ -202,9 +202,9 @@ import { RouterLink } from 'vue-router'
 
 import AppHeader from '@/components/AppHeader.vue'
 import { useIndustries } from '@/composables/useIndustries'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { createIndustry, updateIndustry } from '@/requests/schema'
-import { ENTER_TO_ADD_HINT } from '@/utils/hints'
+import { ENTER_TO_ADD_HINT } from '@truth-platform/core-ui'
 
 const { industries, loading, load } = useIndustries()
 const { notify, reportError } = useSnackbar()
@@ -220,7 +220,7 @@ const draftModules = ref<string[]>([])
 
 const canSave = computed<boolean>(() => draftName.value.length > 0 && draftKey.value.length > 0)
 
-const tokenFor = (key: string): string => industryToken(key, industries.value)
+const tokenFor = (key: string): string => taxonomyToken(key, industries.value)
 
 /** Paint one option of the colour selector in the very colour it stands for. */
 const swatchStyle = (token: string): Record<string, string> => ({

@@ -33,7 +33,7 @@
 
 <script lang="ts">
 import type { ICellRendererParams } from 'ag-grid-community'
-import { EMPTY_PLACEHOLDER } from '@skyscanner/sky-ui'
+import { EMPTY_PLACEHOLDER } from '@truth-platform/core-ui'
 import type { GridRow } from '@/models/grid'
 
 interface Props {
@@ -47,9 +47,8 @@ const NAME_DISPLAY = 'name'
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import HighlightedText from '@/components/HighlightedText.vue'
-import { readContext, readRowId } from '@/utils/grid-context'
-import { matchesTerm } from '@/utils/highlight'
+import { readContext, readRowId } from '@truth-platform/core-ui'
+import { matchesTerm } from '@truth-platform/core-ui'
 
 const props = defineProps<Props>()
 
@@ -87,7 +86,7 @@ const open = (event: MouseEvent) => {
 
   event.preventDefault()
   event.stopPropagation()
-  readContext(props.params).openEvent(readRowId(props.params))
+  readContext(props.params).openRow(readRowId(props.params))
 }
 </script>
 

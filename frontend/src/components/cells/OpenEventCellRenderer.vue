@@ -18,13 +18,13 @@
       size="small"
       icon="mdi-chevron-right"
     />
-    <SkyTooltip>Open the event page</SkyTooltip>
+    <UiTooltip>Open the event page</UiTooltip>
   </a>
 </template>
 
 <script lang="ts">
 import type { ICellRendererParams } from 'ag-grid-community'
-import { SkyTooltip } from '@skyscanner/sky-ui'
+import { UiTooltip } from '@truth-platform/core-ui'
 import type { GridRow } from '@/models/grid'
 
 interface Props {
@@ -35,7 +35,7 @@ interface Props {
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { readContext, readRowId } from '@/utils/grid-context'
+import { readContext, readRowId } from '@truth-platform/core-ui'
 
 const props = defineProps<Props>()
 
@@ -52,7 +52,7 @@ const open = (event: MouseEvent) => {
 
   event.preventDefault()
   event.stopPropagation()
-  readContext(props.params).openEvent(readRowId(props.params))
+  readContext(props.params).openRow(readRowId(props.params))
 }
 </script>
 

@@ -29,8 +29,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@skyscanner/ag-grid-ts': fileURLToPath(new URL('../packages/ag-grid-ts/src/index.ts', import.meta.url)),
-      '@skyscanner/sky-ui': fileURLToPath(new URL('../packages/sky-ui/src/index.ts', import.meta.url)),
+      '@truth-platform/ag-grid-ts': fileURLToPath(new URL('../packages/ag-grid-ts/src/index.ts', import.meta.url)),
+      '@truth-platform/core-ui': fileURLToPath(new URL('../packages/core-ui/src/index.ts', import.meta.url)),
     },
   },
   server: {

@@ -11,8 +11,7 @@
 import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 
-import AppSnackbar from '@/components/AppSnackbar.vue'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 
 const { load } = useIndustries()

@@ -101,7 +101,7 @@
 import type { Artifact, JsonValue } from '@/models/common'
 import type { EntityResponse, EntityType } from '@/models/entity'
 import type { EventDetail } from '@/models/event'
-import type { FieldDefinition } from '@/models/field'
+import type { FieldDefinition } from '@truth-platform/core-ui'
 
 /** The three roles a file plays for an entity, each with its own stored list and its own dropzone. */
 type FileRole = 'raw' | 'parsed' | 'parsedAdditional'
@@ -147,15 +147,14 @@ import { computed, ref, watch } from 'vue'
 
 import EntityFormFields, { emptyEntityForm, type EntityFormValue } from '@/components/EntityFormFields.vue'
 import StoredFilesEditor from '@/components/StoredFilesEditor.vue'
-import UnsavedChangesDialog from '@/components/UnsavedChangesDialog.vue'
-import { useDirtyGuard } from '@/composables/useDirtyGuard'
-import { useSnackbar } from '@/composables/useSnackbar'
+import { useDirtyGuard } from '@truth-platform/core-ui'
+import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import { addEntity, updateEntity } from '@/requests/entities'
 import { listEntityTypes, listFields } from '@/requests/schema'
 import { uploadArtifacts } from '@/requests/storage'
 import { collisionMessage } from '@/utils/artifacts'
-import { toMetadataAttributes, toValueMap, toValueTypeMap } from '@/utils/rows'
+import { toMetadataAttributes, toValueMap, toValueTypeMap } from '@truth-platform/core-ui'
 
 const props = withDefaults(defineProps<Props>(), {
   entity: null,
