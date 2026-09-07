@@ -269,6 +269,8 @@ const update = (key: string, value: JsonValue) => {
 .scheme-form__fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  /* Each field keeps its own height rather than being stretched to match the tallest one beside it. */
+  align-items: start;
   gap: 0.875rem 1rem;
 }
 

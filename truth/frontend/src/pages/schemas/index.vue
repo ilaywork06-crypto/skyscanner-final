@@ -144,7 +144,14 @@ const onCreated = async () => {
   font-size: 0.875rem;
 }
 
+/*
+ * Vuetify gives every input `flex: 1 1 auto`, which is what makes one fill the row it shares with others.
+ * Laid straight into a column that rule fills the leftover *height* of the page instead: the box grew to
+ * several hundred pixels while the text stayed at the top of it and the search icon floated in the middle.
+ * The field is pinned to its own height, and keeps its ceiling on the width.
+ */
 .schemas__search {
+  flex: 0 0 auto;
   max-inline-size: 32rem;
 }
 

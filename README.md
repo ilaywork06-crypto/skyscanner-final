@@ -1,3 +1,9 @@
+npm install                  # from the repo root, installs all workspaces
+python3 truth/mock-api.py    # terminal 1 → http://localhost:8000
+npm run dev:truth            # terminal 2 → http://localhost:5174
+
+
+
 # Skyscanner
 
 Skyscanner is the inventory of the events that produce files - every event, the entities nested inside it
