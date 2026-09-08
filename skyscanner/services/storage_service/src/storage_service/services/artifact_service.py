@@ -13,15 +13,30 @@ from dataclasses import dataclass
 from typing import AsyncIterator
 
 from skyscanner_common.datetime_utils import utc_now
-from skyscanner_common.errors import NotFoundError
+from skyscanner_common.errors import NotFoundError, ValidationError
 from skyscanner_common.ids import new_id
 from skyscanner_common.logging_utils import get_logger
-from skyscanner_common.object_storage import ChunkReader, ObjectStorageClient, build_object_key
+from skyscanner_common.object_storage import (
+    MAXIMUM_PARTS,
+    MINIMUM_PART_BYTES,
+    ChunkReader,
+    ObjectStorageClient,
+    build_object_key,
+)
 from skyscanner_common.settings import StorageSettings, get_storage_settings
 from skyscanner_common.text import file_suffix
 from skyscanner_models.common import Artifact
 from skyscanner_models.enums import ArtifactKind
-from skyscanner_models.storage import ArchiveRequest, DownloadLinkResponse, StorageObjectResponse
+from skyscanner_models.storage import (
+    ArchiveRequest,
+    DownloadLinkResponse,
+    StorageObjectResponse,
+    UploadBeginRequest,
+    UploadBeginResponse,
+    UploadCompleteRequest,
+    UploadPart,
+    UploadStatusResponse,
+)
 
 from storage_service.constants import DEFAULT_CONTENT_TYPE, DEFAULT_OWNER_KIND, UNKNOWN_OWNER
 
@@ -165,6 +180,145 @@ class ArtifactService:
             created_at=utc_now(),
         )
 
+    async def begin_upload(self, request: UploadBeginRequest) -> UploadBeginResponse:
+        """
+        Open an upload the browser drives itself, and tell it where to write and how large a part is.
+
+        The one request per file shape is what a very large file cannot survive: a connection that drops
+        after thirty of forty gigabytes costs all thirty, and nothing about the protocol lets the browser
+        pick the wait back up. An upload opened here is written part by part instead - each part its own
+        request, each one retried on its own, and the whole thing resumable from whatever landed.
+
+        :param request: What the file is called and who it will belong to.
+        :return: The identifier of the opened upload, the key it will land under and the size of one part.
+        :raises StorageError: When the object storage refused to open the upload.
+        """
+        path = build_object_key(
+            prefix=request.owner_kind,
+            identifier=request.owner_id or UNKNOWN_OWNER,
+            file_name=f"{new_id()}_{request.file_name}",
+        )
+        upload_id = await self._storage.begin_multipart(
+            path=path,
+            content_type=request.content_type or DEFAULT_CONTENT_TYPE,
+            metadata={"original_name": request.file_name, "kind": request.kind.value},
+        )
+
+        return UploadBeginResponse(
+            upload_id=upload_id,
+            path=path,
+            part_size=self._part_size,
+            max_parts=MAXIMUM_PARTS,
+        )
+
+    async def write_upload_part(self, path: str, upload_id: str, number: int, chunk: bytes) -> UploadPart:
+        """
+        Write one part of an upload the browser is driving.
+
+        :param path: Key the file is being stored under.
+        :param upload_id: Identifier of the opened upload.
+        :param number: One based position of the part inside the file.
+        :param chunk: Bytes the part carries.
+        :return: The part as the bucket recorded it.
+        :raises ValidationError: When the part is numbered outside what the protocol allows.
+        :raises StorageError: When the object storage refused the part.
+        """
+        if number < 1 or number > MAXIMUM_PARTS:
+            raise ValidationError(
+                message="The part is numbered outside the upload",
+                details={"part": str(number), "most": str(MAXIMUM_PARTS)},
+            )
+
+        etag = await self._storage.write_part(path=path, upload_id=upload_id, number=number, chunk=chunk)
+
+        return UploadPart(number=number, etag=etag, size_bytes=len(chunk))
+
+    async def upload_status(self, path: str, upload_id: str) -> UploadStatusResponse:
+        """
+        Read back which parts of an upload already landed, which is what a browser resumes from.
+
+        :param path: Key the file is being stored under.
+        :param upload_id: Identifier of the opened upload.
+        :return: Every part the bucket is already holding.
+        :raises NotFoundError: When the upload is not open any more.
+        :raises StorageError: When the object storage refused the listing.
+        """
+        stored = await self._storage.stored_parts(path=path, upload_id=upload_id)
+
+        return UploadStatusResponse(
+            upload_id=upload_id,
+            path=path,
+            parts=[UploadPart(number=number, etag=etag, size_bytes=size) for number, etag, size in stored],
+        )
+
+    async def complete_upload(
+        self,
+        upload_id: str,
+        request: UploadCompleteRequest,
+        uploaded_by: str | None = None,
+    ) -> Artifact:
+        """
+        Join the parts of a driven upload into one stored file and describe it as an artifact record.
+
+        The size is read back off the bucket rather than believed from the browser, because the parts were
+        written across many requests and the only account of what actually landed is the one the bucket
+        keeps. That reading is also what refuses an upload whose parts never all arrived.
+
+        :param upload_id: Identifier of the opened upload.
+        :param request: The parts of the file together with everything describing it.
+        :param uploaded_by: Caller the file is written on behalf of, empty when nobody was resolved.
+        :return: The artifact record of the finished file.
+        :raises ValidationError: When the upload names no parts at all.
+        :raises StorageError: When the object storage refused to finish the upload.
+        """
+        if not request.parts:
+            raise ValidationError(
+                message="The upload carries no parts",
+                details={"upload_id": upload_id, "path": request.path},
+            )
+
+        checksum = await self._storage.complete_multipart(
+            path=request.path,
+            upload_id=upload_id,
+            parts=[(part.number, part.etag) for part in request.parts],
+        )
+        stored = await self._storage.head(path=request.path)
+        content_type = request.content_type or DEFAULT_CONTENT_TYPE
+
+        return Artifact(
+            id=new_id(),
+            name=request.file_name,
+            path=request.path,
+            descriptor=request.descriptor,
+            kind=request.kind,
+            suffix=file_suffix(file_name=request.file_name),
+            folder=request.folder,
+            source=f"upload://{request.owner_kind}/{request.owner_id or UNKNOWN_OWNER}",
+            size_bytes=int(stored.get("ContentLength", 0)),
+            content_type=content_type,
+            checksum=checksum,
+            uploaded_by=uploaded_by,
+            created_at=utc_now(),
+        )
+
+    async def abort_upload(self, path: str, upload_id: str) -> None:
+        """
+        Give up an upload the browser was driving, so the parts already written leave the bucket.
+
+        :param path: Key the file was being stored under.
+        :param upload_id: Identifier of the opened upload.
+        """
+        await self._storage.abort_multipart(path=path, upload_id=upload_id)
+
+    @property
+    def _part_size(self) -> int:
+        """
+        How many bytes one part of a driven upload carries, never below what the protocol allows.
+
+        :return: The size of one part in bytes.
+        """
+        return max(self._settings.multipart_chunk_bytes, MINIMUM_PART_BYTES)
+
     async def download_link(self, path: str, name: str | None = None) -> DownloadLinkResponse:
         """
         Mint a temporary link that lets the browser read one stored file straight from the bucket.
@@ -205,14 +359,16 @@ class ArtifactService:
             last_modified=metadata.get("LastModified"),
         )
 
-    def stream(self, path: str) -> AsyncIterator[bytes]:
+    def stream(self, path: str, start: int | None = None, end: int | None = None) -> AsyncIterator[bytes]:
         """
         Read a stored file back in chunks, so that a large file never sits in memory as a whole.
 
         :param path: Key the file is stored under.
-        :return: An iterator over the chunks of the stored file.
+        :param start: First byte that is wanted, counted from zero, or nothing for the beginning.
+        :param end: Last byte that is wanted, included, or nothing for the end of the file.
+        :return: An iterator over the chunks of the requested window.
         """
-        return self._storage.stream(path=path)
+        return self._storage.stream(path=path, start=start, end=end)
 
     async def delete(self, path: str) -> None:
         """

@@ -8,18 +8,23 @@ The endpoints of the stored files - uploading new ones, linking to them, streami
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from skyscanner_common.object_storage import content_disposition
 from skyscanner_common.text import file_suffix, safe_path_segment
-from skyscanner_models.common import OperationResult, UserContext
+from skyscanner_models.common import Artifact, OperationResult, UserContext
 from skyscanner_models.enums import ArtifactKind, Permission
 from skyscanner_models.storage import (
     ArchiveRequest,
     ArtifactUploadResponse,
     DownloadLinkResponse,
     StorageObjectResponse,
+    UploadBeginRequest,
+    UploadBeginResponse,
+    UploadCompleteRequest,
+    UploadPart,
+    UploadStatusResponse,
 )
 
 from storage_service.constants import (
@@ -45,6 +50,15 @@ INLINE_DISPOSITION: str = "inline"
 ATTACHMENT_DISPOSITION: str = "attachment"
 
 UNNAMED_FILE: str = "unnamed"
+
+CONTENT_RANGE: str = "Content-Range"
+ACCEPT_RANGES: str = "Accept-Ranges"
+CONTENT_LENGTH: str = "Content-Length"
+BYTE_UNIT: str = "bytes"
+
+# How much of a part is read off the wire at a time. The part itself is held in memory before it is handed to
+# the bucket, because the protocol wants its length up front, and a part is a few megabytes by construction.
+PART_READ_CHUNK: int = 1024 * 1024
 
 # ----- FUNCTIONS ----- #
 
@@ -96,6 +110,115 @@ async def upload_artifacts(
     return ArtifactUploadResponse(artifacts=artifacts)
 
 
+@ROUTER.post("/uploads", response_model=UploadBeginResponse, status_code=status.HTTP_201_CREATED)
+async def begin_upload(
+    request: UploadBeginRequest,
+    service: ArtifactServiceDependency,
+    _: Annotated[UserContext, Depends(require_permission(Permission.FILE_UPLOAD))],
+) -> UploadBeginResponse:
+    """
+    Open an upload the browser drives itself, writing the file one part per request.
+
+    This is the road a very large file takes. The endpoint above puts a whole pick into one request, which
+    is right for the ordinary case and hopeless past a few gigabytes: the request has to survive from the
+    first byte to the last, and a connection that drops near the end costs every byte that got there. Here
+    the browser opens the upload once, writes the parts as separate requests it can retry one at a time, and
+    asks what landed before sending the rest of a wait that was interrupted.
+
+    :param request: What the file is called and who it will belong to.
+    :param service: Owner of the stored files.
+    :return: The identifier of the opened upload, the key it lands under and the size of one part.
+    """
+    return await service.begin_upload(request=request)
+
+
+@ROUTER.put("/uploads/{upload_id}/parts/{number}", response_model=UploadPart)
+async def write_upload_part(
+    upload_id: str,
+    number: int,
+    request: Request,
+    service: ArtifactServiceDependency,
+    _: Annotated[UserContext, Depends(require_permission(Permission.FILE_UPLOAD))],
+    path: str,
+) -> UploadPart:
+    """
+    Write one part of an opened upload, taking the bytes as the body of the request.
+
+    The part arrives as the raw body rather than as a form, because it is bytes and nothing else: wrapping a
+    few megabytes of a file in a multipart envelope only to unwrap it again costs a copy of the part on both
+    sides of the wire for no information whatsoever.
+
+    :param upload_id: Identifier of the opened upload.
+    :param number: One based position of the part inside the file.
+    :param request: Incoming request whose body is the bytes of the part.
+    :param service: Owner of the stored files.
+    :param path: Key the file is being stored under, as the opening answer named it.
+    :return: The part as the bucket recorded it.
+    """
+    chunk = bytearray()
+    async for piece in request.stream():
+        chunk.extend(piece)
+
+    return await service.write_upload_part(path=path, upload_id=upload_id, number=number, chunk=bytes(chunk))
+
+
+@ROUTER.get("/uploads/{upload_id}", response_model=UploadStatusResponse)
+async def read_upload_status(
+    upload_id: str,
+    service: ArtifactServiceDependency,
+    _: Annotated[UserContext, Depends(require_permission(Permission.FILE_UPLOAD))],
+    path: str,
+) -> UploadStatusResponse:
+    """
+    Read which parts of an opened upload already landed, which is what an interrupted one resumes from.
+
+    :param upload_id: Identifier of the opened upload.
+    :param service: Owner of the stored files.
+    :param path: Key the file is being stored under.
+    :return: Every part the bucket is already holding.
+    """
+    return await service.upload_status(path=path, upload_id=upload_id)
+
+
+@ROUTER.post("/uploads/{upload_id}/complete", response_model=Artifact)
+async def complete_upload(
+    upload_id: str,
+    request: UploadCompleteRequest,
+    service: ArtifactServiceDependency,
+    user: Annotated[UserContext, Depends(require_permission(Permission.FILE_UPLOAD))],
+) -> Artifact:
+    """
+    Join the parts of an opened upload into the one stored file they describe.
+
+    :param upload_id: Identifier of the opened upload.
+    :param request: The parts of the file together with everything describing it.
+    :param service: Owner of the stored files.
+    :param user: Identity the upload is recorded against.
+    :return: The artifact record of the finished file.
+    """
+    return await service.complete_upload(upload_id=upload_id, request=request, uploaded_by=user.username)
+
+
+@ROUTER.delete("/uploads/{upload_id}", response_model=OperationResult)
+async def abort_upload(
+    upload_id: str,
+    service: ArtifactServiceDependency,
+    _: Annotated[UserContext, Depends(require_permission(Permission.FILE_UPLOAD))],
+    path: str,
+) -> OperationResult:
+    """
+    Give up an opened upload, so that the parts already written leave the bucket rather than lingering.
+
+    :param upload_id: Identifier of the opened upload.
+    :param service: Owner of the stored files.
+    :param path: Key the file was being stored under.
+    :return: The acknowledgement that the upload was given up.
+    """
+    await service.abort_upload(path=path, upload_id=upload_id)
+
+    return OperationResult(success=True, message="The upload was given up", affected=1)
+
+
 @ROUTER.get("/link", response_model=DownloadLinkResponse)
 async def read_download_link(
     service: ArtifactServiceDependency,
@@ -137,6 +260,7 @@ async def read_content(
     path: str,
     inline: bool = False,
     name: str | None = None,
+    range_header: Annotated[str | None, Header(alias="Range")] = None,
 ) -> StreamingResponse:
     """
     Stream one stored file through the service, which is what the preview pane of the event page reads.
@@ -151,7 +275,8 @@ async def read_content(
     :param path: Key the file is stored under.
     :param inline: Whether the browser should render the file instead of saving it.
     :param name: Name the file is offered under, defaulting to the last segment of its key.
-    :return: The answer streaming the stored file.
+    :param range_header: Window of the file the caller asked for, when it asked for one rather than all of it.
+    :return: The answer streaming the stored file, or the window of it that was asked for.
     """
     metadata = await service.describe(path=path)
     # Every upload is written under a fresh identifier so that two of them can never overwrite one another,
@@ -161,15 +286,29 @@ async def read_content(
     if inline:
         media_type = _preview_media_type(content_type=metadata.content_type, file_name=file_name)
 
+    headers = {
+        CONTENT_DISPOSITION: content_disposition(
+            disposition=INLINE_DISPOSITION if inline else ATTACHMENT_DISPOSITION,
+            file_name=file_name,
+        ),
+        # Saying so is what lets a reader of a very large file ask for a window of it rather than all of it,
+        # and what lets a browser seek inside an audio or a video file instead of waiting for the whole one.
+        ACCEPT_RANGES: BYTE_UNIT,
+    }
+
+    window = _read_range(header=range_header, size=metadata.size_bytes)
+    if window is None:
+        return StreamingResponse(content=service.stream(path=path), media_type=media_type, headers=headers)
+
+    start, end = window
+    headers[CONTENT_RANGE] = f"{BYTE_UNIT} {start}-{end}/{metadata.size_bytes}"
+    headers[CONTENT_LENGTH] = str(end - start + 1)
+
     return StreamingResponse(
-        content=service.stream(path=path),
+        content=service.stream(path=path, start=start, end=end),
         media_type=media_type,
-        headers={
-            CONTENT_DISPOSITION: content_disposition(
-                disposition=INLINE_DISPOSITION if inline else ATTACHMENT_DISPOSITION,
-                file_name=file_name,
-            ),
-        },
+        headers=headers,
+        status_code=status.HTTP_206_PARTIAL_CONTENT,
     )
 
 
@@ -217,6 +356,49 @@ async def delete_artifact(
     await service.delete(path=path)
 
     return OperationResult(success=True, message="The file was removed", affected=1)
+
+
+def _read_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """
+    Read the window a caller asked for, or nothing when it asked for the whole file.
+
+    Only a single window is honoured. The protocol allows several to be asked for at once and answered as a
+    multipart body, and nothing that reads this service wants that: a viewer paging through a sheet asks for
+    one stretch at a time, and a browser seeking in a video does the same. Anything that cannot be read as
+    one window is answered with the whole file, which is what the protocol asks for when a range is ignored.
+
+    :param header: The window as the caller wrote it, or nothing when it asked for none.
+    :param size: How large the stored file is, which is what an open ended window is measured against.
+    :return: The first and the last byte that are wanted, both included, or nothing for the whole file.
+    """
+    if header is None or size <= 0:
+        return None
+
+    unit, _, spans = header.partition("=")
+    if unit.strip().lower() != BYTE_UNIT or "," in spans:
+        return None
+
+    first, separator, last = spans.strip().partition("-")
+    if not separator:
+        return None
+
+    try:
+        # `-500` asks for the last five hundred bytes rather than for everything up to byte five hundred.
+        if not first:
+            length = int(last)
+            start = max(size - length, 0) if length > 0 else 0
+            end = size - 1
+        else:
+            start = int(first)
+            end = int(last) if last else size - 1
+    except ValueError:
+        return None
+
+    end = min(end, size - 1)
+    if start < 0 or start > end:
+        return None
+
+    return start, end
 
 
 def _preview_media_type(content_type: str, file_name: str) -> str:

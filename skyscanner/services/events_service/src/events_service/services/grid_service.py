@@ -31,6 +31,7 @@ from events_service.constants import (
 from events_service.documents import EntityDocument, EventDocument
 from events_service.repositories.event_repository import EventRepository
 from events_service.repositories.industry_repository import IndustryRepository
+from events_service.repositories.platform_repository import PlatformRepository
 from events_service.repositories.type_repository import TypeRepository
 from events_service.services.field_service import FieldService
 
@@ -54,6 +55,7 @@ class GridService:
         field_service: FieldService,
         introspector: SchemaIntrospector,
         type_repository: TypeRepository,
+        platform_repository: PlatformRepository,
         industry_repository: IndustryRepository,
     ) -> None:
         """
@@ -62,13 +64,15 @@ class GridService:
         :param event_repository: Persistence of the events the rows are read from.
         :param field_service: Owner of the declared dynamic schema.
         :param introspector: Reader of the keys that were written without a declaration.
-        :param type_repository: Persistence of the declared types and platforms a filter offers.
+        :param type_repository: Persistence of the declared types a filter offers.
+        :param platform_repository: Persistence of the declared platforms a filter offers.
         :param industry_repository: Persistence of the industries a filter offers.
         """
         self._event_repository = event_repository
         self._field_service = field_service
         self._introspector = introspector
         self._type_repository = type_repository
+        self._platform_repository = platform_repository
         self._industry_repository = industry_repository
 
     async def event_configuration(self, industry: str | None = None, discover: bool = True) -> GridConfiguration:
@@ -155,7 +159,7 @@ class GridService:
         :param industry: Industry the table is generated for, empty for the shared view of every industry.
         :return: The values of each vocabulary the built in columns name.
         """
-        platforms = await self._type_repository.list_platforms(industry=industry)
+        platforms = await self._platform_repository.list_all(industry=industry)
         event_types = await self._type_repository.list_event_types(industry=industry)
         industries = await self._industry_repository.list_all()
 

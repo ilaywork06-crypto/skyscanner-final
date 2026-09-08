@@ -26,6 +26,7 @@ interface Props {
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { FileList } from '@truth-platform/core-ui'
 import { readContext } from '@truth-platform/core-ui'
 import { readArtifacts } from '@truth-platform/core-ui'
 

@@ -5,6 +5,7 @@
 import { toValueMap } from '@truth-platform/core-ui'
 
 import type { EntityResponse } from '@/models/entity'
+import type { EventSummary } from '@/models/event'
 import type { GridRow } from '@/models/grid'
 
 /**
@@ -29,4 +30,18 @@ const entityToRow = (entity: EntityResponse): GridRow => {
   }
 }
 
-export { entityToRow }
+/**
+ * Flatten one event into the row shape the generated event columns address.
+ *
+ * The inventory is handed rows the backend already flattened, so nothing needed this until the page of a
+ * single event came to show the same attributes the expanded row of the inventory does. What it reads back
+ * is one event rather than a page of them, so the flattening the backend would have done is done here, and
+ * the two surfaces render the identical value through the identical column.
+ */
+const eventToRow = (event: EventSummary): GridRow => ({
+  ...event,
+  event_type_names: event.event_type.map((type) => type.name).join(', '),
+  data: toValueMap(event.metadata),
+})
+
+export { entityToRow, eventToRow }

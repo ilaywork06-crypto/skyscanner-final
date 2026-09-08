@@ -30,10 +30,15 @@
       </v-card-title>
 
       <v-card-text class="value-viewer__body">
+        <!--
+          The whole value, with whatever addresses it holds read out of it. This is where a link stored in a
+          field is actually reachable: the cell it came from had room for a fragment, and a fragment of an
+          address is not one, so the cell shows characters and this shows the link.
+        -->
         <pre
           class="value-viewer__content"
           :class="{ 'value-viewer__content--code': monospace }"
-        >{{ value }}</pre>
+        ><UiLinkedText :text="value" /></pre>
       </v-card-text>
     </v-card>
   </v-dialog>
@@ -54,6 +59,8 @@ interface Emits {
 </script>
 
 <script setup lang="ts">
+import UiLinkedText from './UiLinkedText.vue'
+
 const props = withDefaults(defineProps<Props>(), { title: 'Value', monospace: false })
 const emit = defineEmits<Emits>()
 

@@ -33,6 +33,7 @@
 
 <script lang="ts">
 import type { ICellRendererParams } from 'ag-grid-community'
+import { HighlightedText } from '@truth-platform/core-ui'
 import { EMPTY_PLACEHOLDER } from '@truth-platform/core-ui'
 import type { GridRow } from '@/models/grid'
 

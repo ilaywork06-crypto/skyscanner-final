@@ -61,21 +61,30 @@ beside the compose file, overrides any of them.
 On the first start the events service only creates its indexes. Nothing is seeded, so the system comes up with an
 empty document store and the inventory starts out with no rows at all.
 
-An empty system needs four things before the first event can be uploaded, and all of them are declared from the
-web client: an **industry** on the Industries page, at least one **event type**, at least one **platform** and,
-if the entities of the event should be grouped, an **entity type**, all three on the Types page. The extra
-fields an event type asks for are declared on the same page under the *Event fields* kind, and the dynamic
-fields of the entities are declared afterwards on the Schema page. The same declarations are reachable over the
-API, and every one of them names the industries it belongs to - an empty list means every industry:
+An empty system needs four things before the first event can be uploaded, and each of them is declared on the
+page named after it: an **industry** on Industries, a **platform** on Platforms, at least one **event type**
+and - if the entities of the event should be grouped - an **entity type** on Types. Everything an event or an
+entity is *asked* is declared on Schema, whether it is asked of the event itself or of the entities inside it.
+
+That split is the whole of it: **Types** holds the shapes an event and an entity take, **Schema** holds the
+questions they answer, **Platforms** and **Industries** hold the two vocabularies an event is filed under. The
+event fields used to be declared on the Types page and the platforms used to be a third kind of type there,
+which put three unrelated things behind one selector on a page named after only one of them.
+
+The same declarations are reachable over the API, and every one of them names the industries it belongs to -
+an empty list means every industry:
 
 ```bash
 curl -X POST localhost:8080/api/industries   -H 'Content-Type: application/json' \
      -d '{"key": "robotics", "name": "Robotics", "modules": ["arm", "gripper"]}'
+curl -X POST localhost:8080/api/platforms    -H 'Content-Type: application/json' \
+     -d '{"key": "rig_a", "name": "Rig A", "industries": ["robotics"]}'
 curl -X POST localhost:8080/api/types/events -H 'Content-Type: application/json' \
      -d '{"key": "bench_run", "name": "Bench Run", "industries": ["robotics"], "fields": ["event_date"]}'
-curl -X POST localhost:8080/api/types/platforms -H 'Content-Type: application/json' \
-     -d '{"key": "rig_a", "name": "Rig A", "industries": ["robotics"]}'
 ```
+
+`POST /api/types/platforms` still answers and is marked deprecated, because it is what the README, the client
+and anything anybody scripted have called for as long as the service has existed.
 
 ### Running the pieces by hand
 
@@ -158,12 +167,12 @@ Two things are deliberately left alone by the rule:
 
 ### Event fields
 
-An **event field** is declared on the **Types** page under the *Event fields* kind, with a name, a type, its
-allowed values if it is an enum, and the industry it belongs to. An event type then names the ones it asks
-for, and the create wizard renders exactly those under **Additional Event Attributes** - beside the built in
-fields of `OptionalEventField`, which stay the fixed vocabulary the service itself understands. A new question
-about an event therefore costs a declaration rather than a change to that enumeration and to every form that
-reads it:
+An **event field** is declared on the **Schema** page under the *Event fields* section, with a name, a type,
+its allowed values if it is an enum, and the industry it belongs to - beside the fields of the entities, which
+are declared the same way and were always declared there. An event type then names the ones it asks for, and
+the create wizard renders exactly those under **Additional Event Attributes** - beside the built in fields of
+`OptionalEventField`, which stay the fixed vocabulary the service itself understands. A new question about an
+event therefore costs a declaration rather than a change to that enumeration and to every form that reads it:
 
 ```bash
 curl -X POST localhost:8080/api/fields -H 'Content-Type: application/json' \
@@ -176,7 +185,49 @@ curl -X POST localhost:8080/api/types/events -H 'Content-Type: application/json'
 
 ---
 
+## Changing a declaration after it exists
+
+Every declaration can be edited from the page it lives on - the label, the description, the industries it
+serves, the fields an event type asks for, the icon of an entity type. All of that is an ordinary `PATCH`.
+
+The **key** is the one that is not ordinary, and it is worth saying why. A key is not an identifier here: an
+event stores the keys of the types it was filed under, the platforms it ran on and the fields it answered
+rather than pointing at the declarations. Changing one is therefore a write across the store, and doing
+nothing about that would leave half the documents naming something that no longer exists.
+
+The alternative would be to keep the old key as an alias and let both spellings resolve. That is deliberately
+not what happens, because it is the exact thing this system was built to stop: the whole point of refusing an
+undeclared key is that two people describing one thing write one field, and an alias is a supported way to
+have two live spellings of it. So a rename is carried through instead, by `services/rename_service.py`:
+
+| Renaming | Rewrites |
+| --- | --- |
+| An event type | `events.event_type_keys`, the subscriptions following it, the saved views filtering by it |
+| A platform | `events.platforms`, the saved views filtering by it |
+| An entity type | `objects.object_type_key`, `entity_counts`, the fields scoped to it, the saved views |
+| A field | `metadata[].key` **and** `data.<key>` on every event or entity, the types asking for it, the views |
+
+Two things make that safe to offer rather than merely possible. The key is locked in the form until it is
+deliberately unlocked, so it cannot be changed by tabbing through a dialog; and unlocking it reads
+`GET /api/{types,platforms,fields}/{id}/rename?key=…`, which counts exactly what would move and touches
+nothing, so the dialog can say *"saving rewrites 142 events, 3 templates"* before anybody commits to it.
+Every rewrite starts from a query matching only the documents that carry the old key, so renaming something
+nobody ever used costs one query per collection and writes nothing.
+
+A changed **label** is carried the same way and for the same reason. An event stores the name of its type
+beside the reference to it so a row reads without a lookup, so a label changed on the declaration alone was a
+label the table went on showing the old spelling of forever.
+
+---
+
 ## Reaching the page of an event
+
+The page of an event shows everything the event says about itself: the built in facts, the information, the
+files, the entities - and, under **Additional Event Attributes**, the fields its industry declared, the ones
+its type asked for and anything a script left on it. The expanded row of the inventory had shown those all
+along while the page dedicated to a single event showed the built in facts and stopped, so the one surface
+about one event was the one place its own answers could not be read. Both surfaces now render the identical
+value through the identical generated column. The attributes of an entity are under the arrow on its row.
 
 Every event is a page of its own. The number and the brief have always led there, but nothing on a row said
 so, and a reader who never happened to click one of those two cells never found the page at all. Every row
@@ -184,6 +235,32 @@ therefore ends in the arrow that every list uses to mean *there is more of this 
 end of the row where the eye lands after reading it, and it is a real link - it opens in a new tab, it can be
 copied, and it leads exactly where the other two do. It is furniture of the table rather than a value of it,
 so the **Columns** menu does not offer to hide it.
+
+---
+
+## Reading what is on the screen
+
+Two things a reader does with a value constantly, and could not do here at all.
+
+**Selecting it.** Almost nothing in the system could be picked up with the pointer, and none of that was a
+decision anybody made - the component libraries switch selection off on the things they expect to be clicked,
+and between them they covered most of what is actually read. AG Grid puts `ag-unselectable` on the inventory
+unless it is told otherwise, which is answered in the grid options with `enableCellTextSelection`; Vuetify
+puts `user-select: none` on every `v-table`, which is the listing on Schema, Types, Platforms and Industries,
+and that is answered in `App.vue`. The controls stay unselectable, so dragging across a button presses it
+rather than highlighting the word on it.
+
+**Following it.** Nothing ever asked for a field to hold a link and people put them in anyway - a ticket, a
+dashboard, a folder on a share. Stored as a string they were shown as a string, so the one thing a reader
+wanted to do with the value was the one thing it would not do. `libraries/core-ui/src/utils/links.ts` reads
+the addresses back out of any value and `UiLinkedText` paints them as real anchors, in the table, in the
+attribute tables, in the value viewer and in the information of an event.
+
+Two things it is careful about. The page always shows the characters somebody typed rather than markup built
+out of them; and an address is offered only when the browser's own parser says it is `http`, `https` or
+`mailto`, so a value reading `javascript:...` is text like any other. A cell that had to window a long value
+shows characters rather than a link, because half an address is not one - the viewer behind the expand
+affordance holds the whole value and reads the addresses out of that.
 
 ## Deleting
 
@@ -215,7 +292,7 @@ curl 'localhost:8080/api/industries?offset=0&limit=10'
 ```
 
 `offset`/`limit` are offered by `/api/fields`, `/api/types/events`, `/api/types/entities`,
-`/api/types/platforms`, `/api/industries`, `/api/templates`, `/api/subscriptions` and
+`/api/platforms`, `/api/industries`, `/api/templates`, `/api/subscriptions` and
 `/api/events/{id}/entities`.
 
 ---
@@ -307,12 +384,38 @@ same time, and the web client no longer sends every picked file in a single requ
 batches, runs several of them side by side, and gives any file past sixteen megabytes a request of its own -
 a batch is only ever as quick as the largest file in it.
 
-| Setting | Default | What it decides |
-| --- | --- | --- |
-| `S3_MULTIPART_THRESHOLD_BYTES` | 16 MiB | Past this a file is written as a multipart upload |
-| `S3_MULTIPART_CHUNK_BYTES` | 8 MiB | How much of a file one part carries, floored at the 5 MiB of the protocol |
-| `S3_MULTIPART_CONCURRENCY` | 4 | How many parts of one file travel at once |
-| `S3_UPLOAD_CONCURRENCY` | 6 | How many files of one request are written at once |
+### The file the request cannot survive
+
+All of the above still assumes one request per file, and past a certain size that assumption is the problem
+rather than a detail of it. A request carrying forty gigabytes has to survive from the first byte to the
+last, and a connection that drops thirty gigabytes in costs all thirty - there is nothing in the shape of
+that request that could ever have made it cost less.
+
+Past **64 MiB** the browser drives the upload itself instead, one part per request:
+
+```
+POST   /api/storage/artifacts/uploads              -> upload_id, path, part_size
+PUT    /api/storage/artifacts/uploads/{id}/parts/1    the bytes, as the raw body
+PUT    /api/storage/artifacts/uploads/{id}/parts/2    ...four at a time, each retried on its own
+GET    /api/storage/artifacts/uploads/{id}            what the bucket is already holding
+POST   /api/storage/artifacts/uploads/{id}/complete -> the artifact record
+DELETE /api/storage/artifacts/uploads/{id}            give it up, and the parts leave the bucket
+```
+
+Three things follow from that shape. A part that fails is retried on its own rather than costing the file. An
+upload that is interrupted altogether is **resumed**: the browser remembers the open upload under
+`skyscanner.uploads.open`, and picking the same file again reads what actually landed - from the bucket,
+which is the only honest account of it - and sends only the rest. And nginx never sees a request larger than
+one part, so `client_max_body_size` stops being a ceiling on how large a file the system accepts.
+
+Nothing about a half finished upload is remembered on the service side. The bucket already remembers the
+parts, so a second store of pending uploads - kept in step with it, swept when a browser never comes back -
+would be a second source of truth about the same thing. What the service is not told, it cannot get wrong.
+
+A pick large enough to be written this way is shown as the wait it is: the three dialogs that upload carry a
+progress bar reading the bytes that have actually gone, added up across every pick running side by side.
+
+---
 
 ### The alphabet a file is named in
 
@@ -354,6 +457,33 @@ exist, open the event, edit the entity and drop the parsed files in. The status 
 the caller: an entity that carries parsed files is stored as `parsed`, and a request that claims `parsed`
 without a single parsed file is refused. `POST /api/events`, `POST /api/events/{id}/entities` and
 `PATCH /api/events/{id}/entities/{entity_id}` all read it the same way.
+
+---
+
+## Opening a file without downloading it
+
+A stored file is read through `GET /api/storage/artifacts/content`, and that endpoint honours a `Range`,
+answering with the `206` and the `Content-Range` the protocol asks for. `proxy_buffering` is off for the
+storage service and the header is passed through, so a window asked for is a window that arrives.
+
+That is what lets the viewer open a sheet nobody could open before. A text shaped file past **2 MiB** used to
+be refused outright - a reader with a four gigabyte telemetry csv was told to download it and find something
+else - and it is now read a **1 MiB** window at a time. The heading is read once out of the beginning of the
+file and kept, so the columns stay named ten gigabytes in; a window taken by byte offset opens and closes
+mid row, so both partial rows are dropped rather than shown with their first or last columns missing; and the
+controls under the pane move through the file, including to its end, which is the place a reader of a very
+large file could never reach at all.
+
+A **workbook** is the one shape still capped, and for a reason rather than by oversight: it is compressed and
+its rows are not laid out in the order the file stores them, so there is no window of the bytes that answers
+to a window of the rows.
+
+| Setting | Default | What it decides |
+| --- | --- | --- |
+| `S3_MULTIPART_THRESHOLD_BYTES` | 16 MiB | Past this a file is written as a multipart upload |
+| `S3_MULTIPART_CHUNK_BYTES` | 8 MiB | How much of a file one part carries, floored at the 5 MiB of the protocol |
+| `S3_MULTIPART_CONCURRENCY` | 4 | How many parts of one file travel at once |
+| `S3_UPLOAD_CONCURRENCY` | 6 | How many files of one request are written at once |
 
 ---
 
@@ -414,10 +544,39 @@ Without it the field still takes a point - it just takes it as three typed numbe
 
 ## Browsers
 
-The table library derives most of its palette at run time with `color-mix()`, which reached Chrome in version
-111; on anything older every derived border, hover and header separator is dropped as invalid. The generated
-stylesheet is therefore rewritten on browsers without it, by `libraries/ag-grid-ts/src/compatibility.ts`, and
-the bundler targets the floor named in `skyscanner/frontend/vite.config.ts` rather than inheriting a recent baseline.
+The client is opened on whatever browser a given workstation happens to carry, and the floor it is built for
+is named in `skyscanner/frontend/vite.config.ts`. Three separate things have to be answered for that floor to
+mean anything, because the bundler only ever answers the first of them.
+
+**Syntax.** The bundler rewrites it, which is what the target in the build configuration does.
+
+**The stylesheet the table generates.** It carries two things an older browser cannot read, one version of
+Chrome apart, and `libraries/ag-grid-ts/src/compatibility.ts` rewrites both. The sheets are watched rather
+than swept once, and the two questions are asked separately - a browser on Chrome 111 needs one of them and
+not the other.
+
+- **`color-mix()`** reached Chrome 111. Below it every derived border, hover and header separator is dropped
+  as invalid, which is not a slightly different table but a table with no borders and unreadable headers.
+- **Nested rules** reached Chrome 112. The grid writes about a hundred and forty of its rules inside other
+  rules - `.ag-header-cell-resize { ...; &:after { ... } }` is the shape nearly all of them take - and below
+  that version each one is a parse error the browser throws away, taking every resize handle, checkbox tick,
+  sort arrow, hovered row and focus ring with it. They are hoisted out to stand on their own, with the
+  nesting selector replaced by whatever the rule around it selected. `npm run test --workspace
+  @truth-platform/ag-grid-ts` checks that against the stylesheets AG Grid actually ships: every rule is
+  flattened and then compared, declaration by declaration and in order, with what a CSS parser resolves from
+  the nested original.
+
+**The methods the code calls.** This is the one the bundler says nothing about, because a missing method is
+not a compile time fact: `Array.prototype.findLast` arrived in Chrome 97 and is emitted exactly as written.
+The code path is rarely ours - it belongs to the component libraries, which are built against a far more
+recent baseline than this client is opened on - and it fails where a user can least explain it, as a ripple
+that kills a click. `libraries/core-ui/src/utils/runtime.ts` installs the handful that matter, each only
+where the browser lacks it, and `main.ts` calls it before the application is created.
+
+One of those was our own and was broken on *every* browser: private saved views were minted with
+`crypto.randomUUID`, which is offered only in a secure context, so on a deployment reached as
+`http://<machine>:8080` from another desk - which is how this system is actually opened - saving a view threw
+on the newest Chrome there is. It is used where it exists and worked out by hand where it is not.
 
 Almost none of those mixes name a colour outright. The grid writes them over its own custom properties -
 `color-mix(in srgb, transparent, var(--ag-active-color) 12%)` is the shape nearly all of them take - so the
@@ -448,6 +607,13 @@ uv run pylint skyscanner_models skyscanner_common ag_grid_lib \
 
 npm run type-check --workspace skyscanner/frontend
 npm run lint --workspace skyscanner/frontend
+
+npm run test --workspace @truth-platform/ag-grid-ts
 ```
 
 Both Python checks are clean, and the web client passes `vue-tsc` and `eslint` with zero warnings.
+
+The one test suite in the repository covers the compatibility shim, because it is the piece whose failure is
+both invisible here and total on the machines it exists for: it reads the stylesheets AG Grid actually ships
+out of the installed package, flattens every nested rule, and compares the result declaration by declaration
+and in order against what a CSS parser resolves from the nested original.

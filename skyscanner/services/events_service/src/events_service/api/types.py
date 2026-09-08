@@ -10,18 +10,23 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from skyscanner_models.common import OperationResult, UserContext
+from skyscanner_models.common import OperationResult, RenameResult, UserContext
 from skyscanner_models.entity import EntityTypeCreateRequest, EntityTypeResponse, EntityTypeUpdateRequest
 from skyscanner_models.enums import Permission
 from skyscanner_models.event import EventTypeCreateRequest, EventTypeResponse, EventTypeUpdateRequest
 from skyscanner_models.platform import PlatformCreateRequest, PlatformResponse, PlatformUpdateRequest
 
 from events_service.api.pagination import LIMIT_QUERY, OFFSET_QUERY
-from events_service.dependencies import TypeServiceDependency, require_permission
+from events_service.dependencies import PlatformServiceDependency, TypeServiceDependency, require_permission
 
 # ----- CONSTS ----- #
 
 ROUTER: APIRouter = APIRouter(prefix="/types", tags=["types"])
+
+# A platform is not a kind of type and no longer lives with them: it has its own collection, its own service
+# and its own endpoints under `/api/platforms`. The three addresses below are what the web client, the README
+# and anything anybody scripted against this service have been calling for as long as it has existed, so they
+# stay reachable and hand the work straight to the service that owns it now.
 
 # ----- FUNCTIONS ----- #
 
@@ -66,9 +71,9 @@ async def list_entity_types(
     return await service.list_entity_types(industry=industry, offset=offset, limit=limit)
 
 
-@ROUTER.get("/platforms", response_model=list[PlatformResponse])
+@ROUTER.get("/platforms", response_model=list[PlatformResponse], deprecated=True)
 async def list_platforms(
-    service: TypeServiceDependency,
+    service: PlatformServiceDependency,
     _: Annotated[UserContext, Depends(require_permission(Permission.EVENT_READ))],
     industry: str | None = None,
     offset: int = OFFSET_QUERY,
@@ -118,10 +123,10 @@ async def create_entity_type(
     return await service.create_entity_type(request=request)
 
 
-@ROUTER.post("/platforms", response_model=PlatformResponse, status_code=status.HTTP_201_CREATED)
+@ROUTER.post("/platforms", response_model=PlatformResponse, status_code=status.HTTP_201_CREATED, deprecated=True)
 async def create_platform(
     request: PlatformCreateRequest,
-    service: TypeServiceDependency,
+    service: PlatformServiceDependency,
     _: Annotated[UserContext, Depends(require_permission(Permission.FIELD_MANAGE))],
 ) -> PlatformResponse:
     """
@@ -134,11 +139,11 @@ async def create_platform(
     return await service.create_platform(request=request)
 
 
-@ROUTER.patch("/platforms/{type_id}", response_model=PlatformResponse)
+@ROUTER.patch("/platforms/{type_id}", response_model=PlatformResponse, deprecated=True)
 async def update_platform(
     type_id: str,
     request: PlatformUpdateRequest,
-    service: TypeServiceDependency,
+    service: PlatformServiceDependency,
     _: Annotated[UserContext, Depends(require_permission(Permission.FIELD_MANAGE))],
 ) -> PlatformResponse:
     """
@@ -149,7 +154,29 @@ async def update_platform(
     :param service: Owner of the declared types.
     :return: The changed platform.
     """
-    return await service.update_platform(type_id=type_id, request=request)
+    return await service.update_platform(platform_id=type_id, request=request)
+
+
+@ROUTER.get("/{type_id}/rename", response_model=RenameResult)
+async def preview_type_rename(
+    type_id: str,
+    key: str,
+    service: TypeServiceDependency,
+    _: Annotated[UserContext, Depends(require_permission(Permission.FIELD_MANAGE))],
+) -> RenameResult:
+    """
+    Say what renaming a declared type would touch, so that the change is made knowing its size.
+
+    An event names the types it was filed under by their key rather than pointing at the declarations, so a
+    rename is a write across the events, the saved views and the subscriptions naming it. This answers how
+    much of that there is without doing any of it.
+
+    :param type_id: Identifier of the type that would be renamed.
+    :param key: Key it would be renamed to.
+    :param service: Owner of the declared types.
+    :return: How many documents of each collection carry the current key.
+    """
+    return await service.preview_rename(type_id=type_id, key=key)
 
 
 @ROUTER.patch("/events/{type_id}", response_model=EventTypeResponse)

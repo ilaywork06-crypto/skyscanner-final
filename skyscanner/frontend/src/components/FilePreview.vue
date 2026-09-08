@@ -85,6 +85,61 @@
       class="file-preview__text"
     >{{ text }}</pre>
 
+    <!--
+      Moving through a file that was never pulled over. What is on screen is one stretch of the bytes, and
+      these are how a reader reaches the rest of them - including the end of a file far too large to scroll
+      to, which used to be the one place a reader could never get to at all.
+    -->
+    <div
+      v-if="windowed && failure.length === 0"
+      class="file-preview__window"
+    >
+      <v-btn
+        size="small"
+        variant="text"
+        icon="mdi-page-first"
+        aria-label="Back to the start of the file"
+        :disabled="atFileStart"
+        @click="moveWindow(0)"
+      />
+      <v-btn
+        size="small"
+        variant="text"
+        icon="mdi-chevron-left"
+        aria-label="Back one stretch"
+        :disabled="atFileStart"
+        @click="stepWindow(-1)"
+      />
+      <v-slider
+        class="file-preview__slider"
+        :model-value="windowStart"
+        :min="0"
+        :max="lastWindowStart"
+        :step="1"
+        hide-details
+        density="compact"
+        aria-label="Where in the file to read"
+        @end="moveWindow($event)"
+      />
+      <span class="file-preview__note">{{ windowLabel }}</span>
+      <v-btn
+        size="small"
+        variant="text"
+        icon="mdi-chevron-right"
+        aria-label="On one stretch"
+        :disabled="atFileEnd"
+        @click="stepWindow(1)"
+      />
+      <v-btn
+        size="small"
+        variant="text"
+        icon="mdi-page-last"
+        aria-label="On to the end of the file"
+        :disabled="atFileEnd"
+        @click="moveWindow(lastWindowStart)"
+      />
+    </div>
+
     <div
       v-else
       class="file-preview__centre file-preview__fallback"
@@ -135,27 +190,42 @@ const WORKBOOK_CONTENT_TYPES: string[] = [
   'application/vnd.ms-excel',
 ]
 
-/** Largest text shaped file that is pulled into the browser to be shown, in bytes. */
+/** Past this a text shaped file is read a window at a time rather than pulled into the browser whole. */
 const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024
 
 /** Largest workbook that is pulled into the browser, in bytes. A workbook is compressed, so it may be read further. */
 const WORKBOOK_PREVIEW_LIMIT = 16 * 1024 * 1024
 
-/** Most data rows of a sheet that are put into the document, however many the file holds. */
+/** Most data rows of a sheet that are put into the document, however many the window holds. */
 const TABLE_ROW_LIMIT = 500
+
+/**
+ * How much of a very large file is pulled over at a time.
+ *
+ * A telemetry sheet is measured in gigabytes and the reader is looking at a few hundred rows of it, so the
+ * viewer asks for the stretch it is about to render rather than for the file. A megabyte is a few thousand
+ * rows of an ordinary sheet - comfortably more than the row limit above ever puts on screen - and it arrives
+ * fast enough on a slow link that moving through a file does not feel like waiting for one.
+ */
+const WINDOW_BYTES = 1024 * 1024
+
+/** How much of the start of a sheet is read to find the row its columns are named in. */
+const HEADING_BYTES = 64 * 1024
+
+/** What a file too large to be shown says, which now only ever applies to a workbook. */
+const TOO_LARGE_WORKBOOK = 'This workbook is too large to be opened in the browser.'
 
 const EMPTY_SHEET: SheetContent = { rows: [], truncated: false }
 const READ_FAILURE = 'The file could not be read.'
 const EMPTY_WORKBOOK = 'This workbook holds no rows to show.'
 const UNSUPPORTED = 'This file cannot be shown in the browser.'
-const TOO_LARGE = 'This file is too large to be shown in the browser.'
 </script>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import { buildContentUrl } from '@/requests/storage'
-import { delimiterOf, parseDelimited, readWorkbook } from '@truth-platform/core-ui'
+import { buildContentUrl, readArtifactWindow } from '@/requests/storage'
+import { delimiterOf, formatBytes, parseDelimited, readWorkbook, wholeLines } from '@truth-platform/core-ui'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
@@ -165,6 +235,12 @@ const sheet = ref<SheetContent>(EMPTY_SHEET)
 const loading = ref<boolean>(false)
 const failure = ref<string>('')
 const showRaw = ref<boolean>(false)
+
+/* Where in a very large file the stretch on screen begins, in bytes. Always zero for a file read whole. */
+const windowStart = ref<number>(0)
+
+/* The row a windowed sheet names its columns in, read once out of the first stretch of the file. */
+const windowHeading = ref<string[]>([])
 
 /*
  * Which read the shown content came from. A reader who walks down a file tree starts a read per file, and
@@ -214,38 +290,81 @@ const shape = computed<PreviewMode>(() => {
   return 'unsupported'
 })
 
-const sizeLimit = computed<number>(() => (isWorkbook.value ? WORKBOOK_PREVIEW_LIMIT : TEXT_PREVIEW_LIMIT))
+/*
+ * A workbook is the one shape still capped. It is compressed and its rows are not laid out in the order the
+ * file stores them, so there is no window of the bytes that answers to a window of the rows: the whole of it
+ * has to arrive before any of it can be read.
+ */
+const oversized = computed<boolean>(() => isWorkbook.value && props.artifact.size_bytes > WORKBOOK_PREVIEW_LIMIT)
 
-/* A file that has to travel into the browser before it can be shown is only offered as a download past its cap. */
-const oversized = computed<boolean>(
-  () => (shape.value === 'text' || shape.value === 'table') && props.artifact.size_bytes > sizeLimit.value,
+/*
+ * Whether the file is read a stretch at a time. Anything text shaped past the cap used to be refused outright
+ * - a reader with a four gigabyte sheet was told to download it and find something else to open it with -
+ * and it is now read by asking the service for the window that is about to be rendered.
+ */
+const windowed = computed<boolean>(
+  () =>
+    !isWorkbook.value
+    && (shape.value === 'text' || shape.value === 'table')
+    && props.artifact.size_bytes > TEXT_PREVIEW_LIMIT,
 )
 
 const mode = computed<PreviewMode>(() => (oversized.value ? 'unsupported' : shape.value))
 
 const contentUrl = computed<string>(() => buildContentUrl(props.artifact.path, true))
 
-const headerRow = computed<string[]>(() => sheet.value.rows[0] ?? [])
+/*
+ * A windowed sheet names its columns in the first row of the file rather than in the first row of whatever
+ * stretch is on screen, so the heading is read once out of the beginning and kept while the reader moves.
+ */
+const headerRow = computed<string[]>(() =>
+  windowed.value ? windowHeading.value : (sheet.value.rows[0] ?? []),
+)
+
+/* Only the very first stretch of a file opens with the heading; every later one is rows all the way down. */
+const leadsWithHeading = computed<boolean>(() => !windowed.value || windowStart.value === 0)
 
 /* Rows of a sheet are ragged, and a row shorter than the header would otherwise pull the table apart. */
 const bodyRows = computed<string[][]>(() =>
-  sheet.value.rows
-    .slice(1)
-    .map((row) => [...row, ...Array<string>(Math.max(headerRow.value.length - row.length, 0)).fill('')]),
+  (leadsWithHeading.value ? sheet.value.rows.slice(1) : sheet.value.rows).map((row) => [
+    ...row,
+    ...Array<string>(Math.max(headerRow.value.length - row.length, 0)).fill(''),
+  ]),
 )
 
-const tableNote = computed<string>(() =>
-  sheet.value.truncated
-    ? `The first ${TABLE_ROW_LIMIT} rows of a longer file are shown.`
-    : `${bodyRows.value.length} rows`,
+/** How far into a very large file the stretch on screen sits, as the share of it that stands behind. */
+const windowShare = computed<number>(() =>
+  props.artifact.size_bytes === 0 ? 0 : Math.round((windowStart.value / props.artifact.size_bytes) * 100),
 )
+
+const atFileStart = computed<boolean>(() => windowStart.value <= 0)
+
+const atFileEnd = computed<boolean>(() => windowStart.value + WINDOW_BYTES >= props.artifact.size_bytes)
+
+/** What the controls say about where in the file the reader currently is. */
+const windowLabel = computed<string>(
+  () => `${formatBytes(windowStart.value)} of ${formatBytes(props.artifact.size_bytes)}`,
+)
+
+/** The furthest the stretch on screen can begin, which is a whole stretch back from the end of the file. */
+const lastWindowStart = computed<number>(() => Math.max(props.artifact.size_bytes - WINDOW_BYTES, 0))
+
+const tableNote = computed<string>(() => {
+  if (windowed.value) {
+    return `${bodyRows.value.length} rows, ${windowShare.value}% into the file`
+  }
+
+  return sheet.value.truncated
+    ? `The first ${TABLE_ROW_LIMIT} rows of a longer file are shown.`
+    : `${bodyRows.value.length} rows`
+})
 
 const fallbackMessage = computed<string>(() => {
   if (failure.value.length > 0) {
     return failure.value
   }
 
-  return oversized.value ? TOO_LARGE : UNSUPPORTED
+  return oversized.value ? TOO_LARGE_WORKBOOK : UNSUPPORTED
 })
 
 /**
@@ -292,6 +411,8 @@ const load = async (): Promise<void> => {
       }
       sheet.value = content
       failure.value = content.rows.length === 0 ? EMPTY_WORKBOOK : ''
+    } else if (windowed.value) {
+      await readWindow(read)
     } else {
       const body = await (await readContent()).text()
       if (read !== currentRead) {
@@ -315,7 +436,68 @@ const load = async (): Promise<void> => {
   }
 }
 
-watch(() => props.artifact, load, { immediate: true })
+/**
+ * Read the stretch of a very large file that is about to be shown, and the heading it is read under.
+ *
+ * The heading comes out of the beginning of the file rather than out of the stretch, because a sheet names
+ * its columns once and a reader ten gigabytes into it still needs to know which column is which. It is read
+ * on the first stretch and kept from then on.
+ *
+ * :param read: Which read this is, so the answer of an abandoned one is thrown away rather than shown.
+ */
+const readWindow = async (read: number): Promise<void> => {
+  const size = props.artifact.size_bytes
+  const start = Math.min(Math.max(windowStart.value, 0), Math.max(size - 1, 0))
+  const end = Math.min(start + WINDOW_BYTES - 1, size - 1)
+
+  if (mode.value === 'table' && windowHeading.value.length === 0) {
+    const opening = await readArtifactWindow(props.artifact.path, 0, Math.min(HEADING_BYTES, size) - 1)
+    if (read !== currentRead) {
+      return
+    }
+    windowHeading.value = parseDelimited(opening, delimiterOf(suffix.value, opening), 1).rows[0] ?? []
+  }
+
+  const raw = await readArtifactWindow(props.artifact.path, start, end)
+  if (read !== currentRead) {
+    return
+  }
+
+  /* A stretch taken by byte offset opens and closes mid row, and half a row is worse than one row fewer. */
+  const body = wholeLines(raw, start === 0, end >= size - 1).text
+  text.value = body
+
+  if (mode.value === 'table') {
+    sheet.value = parseDelimited(body, delimiterOf(suffix.value, body), TABLE_ROW_LIMIT + 1)
+    showRaw.value = sheet.value.rows.length === 0
+  }
+}
+
+/**
+ * Move the stretch on screen through a very large file.
+ *
+ * :param to: Where the new stretch begins, in bytes, which is clamped to the file.
+ */
+const moveWindow = (to: number): void => {
+  windowStart.value = Math.min(Math.max(to, 0), lastWindowStart.value)
+  void load()
+}
+
+/** Move one stretch back or on, whichever way the reader pressed. */
+const stepWindow = (direction: number): void => {
+  moveWindow(windowStart.value + direction * WINDOW_BYTES)
+}
+
+/* Picking a different file starts a different reading, so nothing of the last one is carried into it. */
+watch(
+  () => props.artifact,
+  () => {
+    windowStart.value = 0
+    windowHeading.value = []
+    void load()
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
@@ -372,6 +554,19 @@ watch(() => props.artifact, load, { immediate: true })
 .file-preview__note {
   font-size: 0.75rem;
   opacity: 0.7;
+}
+
+/* The controls of a file read a stretch at a time, which only appear for a file too large to be read whole. */
+.file-preview__window {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: 0.25rem;
+}
+
+.file-preview__slider {
+  flex: 1 1 auto;
+  min-inline-size: 6rem;
 }
 
 /* A wide sheet scrolls inside the pane rather than stretching whatever holds it. */

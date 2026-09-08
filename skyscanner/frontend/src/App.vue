@@ -11,6 +11,7 @@
 import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 
+import { AppSnackbar } from '@truth-platform/core-ui'
 import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 
@@ -145,5 +146,47 @@ body,
   .sky-page__content {
     padding-inline: 1rem;
   }
+}
+
+/*
+ * What a reader may pick up with the pointer.
+ *
+ * Almost nothing in the system could be selected, and none of it was a decision anybody made: the component
+ * libraries switch selection off by default on the things they expect to be clicked, and between them they
+ * cover most of what is actually read. Vuetify puts `user-select: none` on every `v-table`, which is the
+ * listing on the Schema, Types, Platforms and Industries pages; the table library puts `ag-unselectable` on
+ * the inventory, which is answered in the grid options rather than here.
+ *
+ * Text a user reads is text a user may copy. The exceptions are the controls - a button, a tab, a checkbox -
+ * where dragging across the label ought to press the thing rather than highlight the word on it.
+ */
+.v-table,
+.v-table__wrapper,
+.v-table th,
+.v-table td,
+.v-card-text,
+.v-list-item__content,
+.v-expansion-panel-text {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/*
+ * The chips are values rather than controls almost everywhere they appear here - a platform, an industry, a
+ * status, an entity type - so their text is selectable too. A chip that really is a control says so by
+ * carrying a close button or a filter state, and those keep the library's own behaviour.
+ */
+.v-chip:not(.v-chip--filter):not(.v-chip--closable) .v-chip__content {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* The controls stay unselectable, so dragging over a label presses it rather than highlighting it. */
+.v-btn,
+.v-tab,
+.v-checkbox-btn,
+.v-selection-control__wrapper {
+  -webkit-user-select: none;
+  user-select: none;
 }
 </style>

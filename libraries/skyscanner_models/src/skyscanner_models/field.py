@@ -117,6 +117,10 @@ class FieldUpdateRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    # A value is stored under the key of the declaration that asked for it, twice over - in the metadata list
+    # and in the flat sub document the columns are filtered over - so a key that moves has to be carried
+    # through every value written under it, which the service does in one pass and reports the size of.
+    key: str | None = Field(default=None, description="New machine key, carried through every value stored under it")
     name: str | None = Field(default=None, description="New label of the field")
     type: FieldType | None = Field(default=None, description="New primitive type of the field")
     array: bool | None = Field(default=None, description="New multiplicity of the field")

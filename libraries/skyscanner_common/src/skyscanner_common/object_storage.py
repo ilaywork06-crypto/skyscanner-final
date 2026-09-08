@@ -216,18 +216,30 @@ class ObjectStorageClient:
 
         return payload
 
-    async def stream(self, path: str) -> AsyncIterator[bytes]:
+    async def stream(self, path: str, start: int | None = None, end: int | None = None) -> AsyncIterator[bytes]:
         """
         Read an object back in chunks, so that large files never sit in memory as a whole.
 
+        A caller may ask for a window of the file rather than the whole of it, which is what lets a viewer
+        open a sheet of several gigabytes: the rows on screen are a few hundred kilobytes somewhere inside
+        the object, and reading the object up to them to reach them is the difference between a file that
+        opens and a file that cannot be looked at at all.
+
         :param path: Key the object is stored under.
-        :return: An iterator over the chunks of the stored object.
+        :param start: First byte that is wanted, counted from zero, or nothing for the beginning.
+        :param end: Last byte that is wanted, included, or nothing for the end of the object.
+        :return: An iterator over the chunks of the requested window.
         :raises NotFoundError: When the bucket does not hold the key.
         :raises StorageError: When the object storage refused the read.
         """
         client = self._require_client()
+        window = _byte_range(start=start, end=end)
+        arguments: dict[str, Any] = {"Bucket": self._settings.bucket, "Key": path}
+        if window is not None:
+            arguments["Range"] = window
+
         try:
-            response = await client.get_object(Bucket=self._settings.bucket, Key=path)
+            response = await client.get_object(**arguments)
         except ClientError as error:
             if _is_missing(error):
                 raise NotFoundError(message="The file is not stored", details={"path": path}) from error
@@ -309,6 +321,137 @@ class ObjectStorageClient:
             raise StorageError(message="The download link could not be created", details={"path": path}) from error
 
         return url, timedelta(seconds=self._settings.presigned_url_ttl_seconds)
+
+    async def begin_multipart(
+        self,
+        path: str,
+        content_type: str = DEFAULT_CONTENT_TYPE,
+        metadata: dict[str, str] | None = None,
+    ) -> str:
+        """
+        Open a multipart upload the caller drives itself, part by part, across separate requests.
+
+        `upload_stream` writes a large file inside one request, which is the right shape when the bytes are
+        already arriving and the wrong one when they are not: a request that has to survive from the first
+        byte of forty gigabytes to the last is a request that a dropped connection costs entirely. An upload
+        opened here belongs to the caller instead - it writes the parts whenever it can, retries the ones
+        that failed on their own, and finishes when they have all landed.
+
+        :param path: Key the file will be stored under.
+        :param content_type: MIME type recorded together with the object.
+        :param metadata: Extra key and value pairs stored next to the object.
+        :return: Identifier the bucket gave the started upload.
+        :raises StorageError: When the object storage refused to start the upload.
+        """
+        try:
+            started = await self._require_client().create_multipart_upload(
+                Bucket=self._settings.bucket,
+                Key=path,
+                ContentType=content_type,
+                Metadata=_encode_metadata(metadata),
+            )
+        except (BotoCoreError, ClientError) as error:
+            raise StorageError(message="The upload could not be started", details={"path": path}) from error
+
+        return str(started["UploadId"])
+
+    async def write_part(self, path: str, upload_id: str, number: int, chunk: bytes) -> str:
+        """
+        Write one part of an upload the caller is driving, and hand back the tag that identifies it.
+
+        :param path: Key the file is stored under.
+        :param upload_id: Identifier the bucket gave the started upload.
+        :param number: One based position of the part inside the file.
+        :param chunk: Bytes the part carries.
+        :return: The checksum the bucket recorded for the part.
+        :raises StorageError: When the object storage refused the part.
+        """
+        written = await self._upload_part(path=path, upload_id=upload_id, number=number, chunk=chunk)
+
+        return str(written[ETAG_KEY]).strip('"')
+
+    async def stored_parts(self, path: str, upload_id: str) -> list[tuple[int, str, int]]:
+        """
+        Read back which parts of an upload the bucket is already holding.
+
+        This is what makes an interrupted upload resumable rather than restartable: a caller that comes back
+        to an upload asks what landed and sends only what did not. The bucket is the memory of it, so
+        nothing about a half written file has to be remembered on this side.
+
+        :param path: Key the file is being stored under.
+        :param upload_id: Identifier the bucket gave the started upload.
+        :return: The number, the checksum and the size of every part already written, in order.
+        :raises NotFoundError: When the upload was never started, or was already finished or given up.
+        :raises StorageError: When the object storage refused the listing.
+        """
+        client = self._require_client()
+        parts: list[tuple[int, str, int]] = []
+        marker = 0
+
+        try:
+            while True:
+                answer = await client.list_parts(
+                    Bucket=self._settings.bucket,
+                    Key=path,
+                    UploadId=upload_id,
+                    PartNumberMarker=marker,
+                )
+                for part in answer.get("Parts", []):
+                    parts.append(
+                        (int(part[PART_NUMBER_KEY]), str(part[ETAG_KEY]).strip('"'), int(part.get("Size", 0))),
+                    )
+                if not answer.get("IsTruncated", False):
+                    break
+                marker = int(answer.get("NextPartNumberMarker", 0))
+        except ClientError as error:
+            if _is_missing(error) or _is_unknown_upload(error):
+                raise NotFoundError(
+                    message="The upload is not open",
+                    details={"path": path, "upload_id": upload_id},
+                ) from error
+            raise StorageError(message="The upload could not be read", details={"path": path}) from error
+        except BotoCoreError as error:
+            raise StorageError(message="The upload could not be read", details={"path": path}) from error
+
+        parts.sort(key=lambda part: part[0])
+
+        return parts
+
+    async def complete_multipart(self, path: str, upload_id: str, parts: list[tuple[int, str]]) -> str:
+        """
+        Finish an upload the caller drove, joining the parts the bucket holds into one object.
+
+        :param path: Key the file is stored under.
+        :param upload_id: Identifier the bucket gave the started upload.
+        :param parts: The number and the checksum of every part, which the bucket verifies against its own.
+        :return: The checksum reported for the finished object.
+        :raises StorageError: When the object storage refused to finish the upload.
+        """
+        ordered = sorted(parts, key=lambda part: part[0])
+        try:
+            completed = await self._require_client().complete_multipart_upload(
+                Bucket=self._settings.bucket,
+                Key=path,
+                UploadId=upload_id,
+                MultipartUpload={
+                    "Parts": [{PART_NUMBER_KEY: number, ETAG_KEY: tag} for number, tag in ordered],
+                },
+            )
+        except (BotoCoreError, ClientError) as error:
+            raise StorageError(message="The upload could not be finished", details={"path": path}) from error
+
+        LOGGER.info("Finished the caller driven upload of %s as %d parts", path, len(ordered))
+
+        return str(completed.get(ETAG_KEY, "")).strip('"')
+
+    async def abort_multipart(self, path: str, upload_id: str) -> None:
+        """
+        Give up an upload the caller was driving, so that the parts already written leave the bucket.
+
+        :param path: Key the file was being stored under.
+        :param upload_id: Identifier the bucket gave the started upload.
+        """
+        await self._abort_multipart(path=path, upload_id=upload_id)
 
     async def _upload_multipart(
         self,
@@ -561,6 +704,37 @@ def content_disposition(disposition: str, file_name: str) -> str:
     encoded = quote(file_name, safe="")
 
     return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+
+
+def _byte_range(start: int | None, end: int | None) -> str | None:
+    """
+    Write the window a caller asked for the way the protocol spells it, or nothing when they asked for all.
+
+    The header counts both edges inclusively and allows either of them to be left open, which is exactly the
+    three shapes a reader of a very large file needs: the first so much of it, everything from here on, and
+    the stretch between two points.
+
+    :param start: First byte that is wanted, counted from zero.
+    :param end: Last byte that is wanted, included.
+    :return: The window as the object storage expects it, or nothing when none was asked for.
+    """
+    if start is None and end is None:
+        return None
+
+    if start is None:
+        return f"bytes=-{end}"
+
+    return f"bytes={start}-" if end is None else f"bytes={start}-{end}"
+
+
+def _is_unknown_upload(error: ClientError) -> bool:
+    """
+    Decide whether a failure means the upload was never started, or was already finished or given up.
+
+    :param error: Failure the object storage answered with.
+    :return: Whether the upload is simply not open any more.
+    """
+    return str(error.response.get("Error", {}).get("Code", "")) == "NoSuchUpload"
 
 
 def _is_missing(error: ClientError) -> bool:

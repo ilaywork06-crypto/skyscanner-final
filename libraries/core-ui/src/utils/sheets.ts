@@ -143,5 +143,43 @@ const readWorkbook = async (buffer: ArrayBuffer, rowLimit: number): Promise<Shee
   }
 }
 
+/**
+ * Trim a window of a file back to the whole lines inside it.
+ *
+ * A window taken by byte offset lands wherever it lands, which is almost never on the end of a line: the
+ * first line of it is the tail of a row that began before the window, and the last is the head of one that
+ * finishes after it. Rendering either would show a row with its first columns missing or its last ones cut
+ * off, which is worse than not showing that row at all - so both are dropped and the reader is given only
+ * rows the window actually holds the whole of.
+ *
+ * The two edges are treated differently at the ends of the file: the first window really does start at the
+ * beginning of a line, and the last really does end at the end of one.
+ *
+ * :param text: The window as it was read.
+ * :param atStart: Whether the window begins at the first byte of the file.
+ * :param atEnd: Whether the window reaches the last byte of the file.
+ * :return: The window reduced to the lines it holds whole, and where those lines begin inside it.
+ */
+const wholeLines = (text: string, atStart: boolean, atEnd: boolean): { text: string; offset: number } => {
+  let body = text
+  let offset = 0
+
+  if (!atStart) {
+    const firstBreak = body.indexOf(LINE_FEED)
+    if (firstBreak === -1) {
+      return { text: '', offset: body.length }
+    }
+    offset = firstBreak + 1
+    body = body.slice(offset)
+  }
+
+  if (!atEnd) {
+    const lastBreak = body.lastIndexOf(LINE_FEED)
+    body = lastBreak === -1 ? '' : body.slice(0, lastBreak)
+  }
+
+  return { text: body, offset }
+}
+
 export type { SheetContent }
-export { delimiterOf, parseDelimited, readWorkbook }
+export { delimiterOf, parseDelimited, readWorkbook, wholeLines }

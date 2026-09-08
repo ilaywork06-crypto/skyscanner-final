@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     command: ["--quiet"]
     volumes:
-      - mongo-data:/data/db
+      - mongo1-data:/data/db
     ports:
       - "27017:27017"
     healthcheck:
@@ -138,7 +138,7 @@ services:
       - skyscanner
 
 volumes:
-  mongo-data:
+  mongo1-data:
   minio-data:
 
 networks:

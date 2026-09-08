@@ -16,6 +16,18 @@
  * The one thing that cannot be done here is the cascade. A custom property means whatever the last rule that
  * set it says, and this reads the sheets in order and lets the last definition win - which is what the
  * cascade does for rules of equal weight, and what the grid writes.
+ *
+ * The same stylesheets carry a second thing an older browser cannot read. The grid writes a good sixty of
+ * its rules *inside* other rules - `.ag-header-cell-resize { ...; &:after { ... } }` is the shape almost all
+ * of them take - and native nesting reached Chrome in version 112, one version after the colour function.
+ * Below that the nested rule is not a slightly different rule, it is a parse error: the browser throws it
+ * away and every resize handle, checkbox tick, sort arrow, hovered row and focus ring written that way is
+ * simply absent. Those rules are therefore hoisted out to stand on their own, with the nesting selector
+ * replaced by whatever the rule around it selected.
+ *
+ * The two are asked about separately. A browser on Chrome 111 understands the colours and not the nesting,
+ * so answering one question for both would either leave that browser broken or rewrite sheets that were
+ * fine as they stood.
  */
 
 /** Every custom property the injected stylesheets set, by name. */
@@ -368,17 +380,382 @@ const resolveColorMix = (css: string, variables: Variables = new Map()): string 
 }
 
 /**
- * Rewrite the stylesheets the grid injected so that a browser without the colour function still gets colours.
+ * One piece of a block: either a run of declarations or a rule of its own.
  *
- * Only the sheets the grid wrote are touched, and only in a browser that needs it, so on everything modern
- * this costs one feature test and nothing else.
+ * A block is read as the sequence it was written as rather than as two buckets, because the order the two
+ * kinds appear in is what decides the cascade once the nesting is taken out.
+ */
+type StyleNode =
+  | { kind: 'declarations'; text: string }
+  | { kind: 'rule'; prelude: string; body: StyleNode[] }
+
+/** The at rules whose contents are not selectors, so nothing inside one of them is ever flattened. */
+const OPAQUE_AT_RULES: string[] = [
+  '@keyframes',
+  '@-webkit-keyframes',
+  '@font-face',
+  '@counter-style',
+  '@property',
+  '@page',
+  '@font-feature-values',
+]
+
+/** The nesting selector, which stands for whatever the rule around it selects. */
+const NESTING_SELECTOR = /&/g
+
+/**
+ * Decide whether the browser can read a rule written inside another rule.
+ *
+ * Native nesting reached Chrome in version 112 - one version later than the colour function above - so a
+ * browser may well understand the palette and still drop every rule the grid nested inside another. The two
+ * are therefore asked about separately rather than one standing in for the other.
+ */
+const supportsNesting = (): boolean =>
+  typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('selector(&)')
+
+/**
+ * Find where a string that started at one index ends, so that its contents are never read as syntax.
+ *
+ * :param css: The stylesheet being read.
+ * :param from: Index of the opening quote.
+ * :return: Index just past the closing quote.
+ */
+const readString = (css: string, from: number): number => {
+  const quote = css[from]
+  let index = from + 1
+
+  while (index < css.length) {
+    if (css[index] === '\\') {
+      index += 2
+
+      continue
+    }
+    if (css[index] === quote) {
+      return index + 1
+    }
+    index += 1
+  }
+
+  return index
+}
+
+/**
+ * Split a selector list on the commas that separate its selectors rather than on those inside a bracket.
+ *
+ * `:is(.a, .b) .c` is one selector and not two, and a split that did not know that would turn the grid's
+ * own `:where(...)` selectors into fragments that select nothing at all.
+ *
+ * :param selector: The selector list being split.
+ * :return: The individual selectors, in the order they were written.
+ */
+const splitSelectorList = (selector: string): string[] => {
+  const parts: string[] = []
+  let depth = 0
+  let current = ''
+  let index = 0
+
+  while (index < selector.length) {
+    const character = selector[index]
+
+    if (character === '"' || character === "'") {
+      const end = readString(selector, index)
+      current += selector.slice(index, end)
+      index = end
+
+      continue
+    }
+
+    if (character === '(' || character === '[') {
+      depth += 1
+    }
+    if (character === ')' || character === ']') {
+      depth -= 1
+    }
+
+    if (character === ',' && depth === 0) {
+      parts.push(current)
+      current = ''
+      index += 1
+
+      continue
+    }
+
+    current += character
+    index += 1
+  }
+  parts.push(current)
+
+  return parts.map((part) => part.trim()).filter((part) => part.length > 0)
+}
+
+/**
+ * Find the last semicolon of a run of text that ends a declaration rather than sitting inside a bracket.
+ *
+ * What stands between that semicolon and the opening brace is the selector of a nested rule, and what
+ * stands before it are the declarations of the rule around it. Reading the two apart is the whole of it:
+ * `color:red;&:after` is one declaration and one nested selector, not a selector called `color:red;&:after`.
+ *
+ * :param text: The text gathered since the last brace, which holds no brace of its own.
+ * :return: Index of the separating semicolon, or minus one when the whole run is a selector.
+ */
+const lastDeclarationEnd = (text: string): number => {
+  let depth = 0
+  let found = -1
+  let index = 0
+
+  while (index < text.length) {
+    const character = text[index]
+
+    if (character === '"' || character === "'") {
+      index = readString(text, index)
+
+      continue
+    }
+
+    if (character === '(' || character === '[') {
+      depth += 1
+    }
+    if (character === ')' || character === ']') {
+      depth -= 1
+    }
+    if (character === ';' && depth === 0) {
+      found = index
+    }
+    index += 1
+  }
+
+  return found
+}
+
+/**
+ * Read a stylesheet, or the inside of one block of it, into the rules and declarations it is made of.
+ *
+ * :param css: The stylesheet being read.
+ * :param from: Index the reading starts at.
+ * :return: The pieces of this block and the index of the brace that closed it.
+ */
+const parseNodes = (css: string, from: number): { nodes: StyleNode[]; index: number } => {
+  const nodes: StyleNode[] = []
+  let pending = ''
+  let index = from
+
+  while (index < css.length) {
+    const character = css[index]
+
+    /* A comment is not content, and one holding a brace would otherwise close a block that never opened. */
+    if (character === '/' && css[index + 1] === '*') {
+      const close = css.indexOf('*/', index + 2)
+      index = close === -1 ? css.length : close + 2
+
+      continue
+    }
+
+    if (character === '"' || character === "'") {
+      const end = readString(css, index)
+      pending += css.slice(index, end)
+      index = end
+
+      continue
+    }
+
+    if (character === '}') {
+      break
+    }
+
+    if (character === '{') {
+      const cut = lastDeclarationEnd(pending)
+      const declarations = cut === -1 ? '' : pending.slice(0, cut + 1).trim()
+      const prelude = (cut === -1 ? pending : pending.slice(cut + 1)).trim()
+      if (declarations.length > 0) {
+        nodes.push({ kind: 'declarations', text: declarations })
+      }
+
+      const inner = parseNodes(css, index + 1)
+      nodes.push({ kind: 'rule', prelude, body: inner.nodes })
+      pending = ''
+      index = inner.index + 1
+
+      continue
+    }
+
+    pending += character
+    index += 1
+  }
+
+  const trailing = pending.trim()
+  if (trailing.length > 0) {
+    nodes.push({ kind: 'declarations', text: trailing })
+  }
+
+  return { nodes, index }
+}
+
+/**
+ * Write a block back out exactly as it was read, which is what an at rule nothing may be hoisted out of gets.
+ */
+const serializeNodes = (nodes: StyleNode[]): string =>
+  nodes
+    .map((node) =>
+      node.kind === 'declarations' ? node.text : `${node.prelude}{${serializeNodes(node.body)}}`,
+    )
+    .join('')
+
+/** The name of an at rule, which is what decides whether its contents hold rules or something else. */
+const atRuleName = (prelude: string): string => (/^@[\w-]+/.exec(prelude) ?? [''])[0].toLowerCase()
+
+/**
+ * Work out what a nested selector selects once it is written on its own.
+ *
+ * A selector that names the rule around it has that naming replaced, and one that does not is a descendant
+ * of it - which is what the relaxed form of the syntax means and what a browser without nesting would never
+ * work out for itself. A parent that is a list has to be wrapped before it is substituted, because
+ * `.a, .b` put in front of `:hover` would otherwise read as `.a` and `.b:hover` rather than as both hovered.
+ *
+ * :param child: Selector of the nested rule, as it was written.
+ * :param parent: Selector of the rule it was written inside, already resolved.
+ * :return: The selector the nested rule has once it stands on its own.
+ */
+const resolveSelector = (child: string, parent: string): string => {
+  const reference = splitSelectorList(parent).length > 1 ? `:is(${parent})` : parent
+
+  return splitSelectorList(child)
+    .map((one) => (one.includes('&') ? one.replace(NESTING_SELECTOR, reference) : `${reference} ${one}`))
+    .join(',')
+}
+
+/**
+ * Write out one block as rules that stand on their own, hoisting everything nested inside it.
+ *
+ * The declarations of a block are gathered as they are met and written out the moment a nested rule
+ * interrupts them, so a declaration written after a nested rule stays after it. That ordering is not a
+ * detail: two rules of equal weight are settled by which of them came last, and hoisting every declaration
+ * of a block into one rule at the top would quietly reverse the answer wherever the grid overrides itself.
+ *
+ * :param nodes: The pieces of the block being written out.
+ * :param parent: Selector the block belongs to, empty at the top level of a stylesheet.
+ * :param out: The rules gathered so far, which this appends to.
+ */
+const flattenNodes = (nodes: StyleNode[], parent: string, out: string[]): void => {
+  let declarations: string[] = []
+
+  const flush = (): void => {
+    if (declarations.length === 0) {
+      return
+    }
+
+    const text = declarations.join('')
+    out.push(parent.length > 0 ? `${parent}{${text}}` : text)
+    declarations = []
+  }
+
+  nodes.forEach((node) => {
+    if (node.kind === 'declarations') {
+      declarations.push(node.text.endsWith(';') ? node.text : `${node.text};`)
+
+      return
+    }
+
+    flush()
+
+    if (node.prelude.startsWith('@')) {
+      /* The frames of an animation are not selectors, so the block is kept exactly as the grid wrote it. */
+      if (OPAQUE_AT_RULES.includes(atRuleName(node.prelude))) {
+        out.push(`${node.prelude}{${serializeNodes(node.body)}}`)
+
+        return
+      }
+
+      /*
+       * A condition wrapped around rules keeps its wrapper and hands its contents the same selector it was
+       * given, which is what turns a query written inside a rule into the same query written around it.
+       */
+      const inner: string[] = []
+      flattenNodes(node.body, parent, inner)
+      out.push(`${node.prelude}{${inner.join('')}}`)
+
+      return
+    }
+
+    flattenNodes(node.body, parent.length > 0 ? resolveSelector(node.prelude, parent) : node.prelude, out)
+  })
+
+  flush()
+}
+
+/**
+ * Decide whether a stylesheet actually writes anything inside a rule of its own.
+ *
+ * Asking this before rewriting is what leaves a sheet that never nested byte for byte as the grid wrote it,
+ * and it cannot be answered by looking for the nesting selector: the relaxed form of the syntax lets a rule
+ * be nested under nothing but a combinator, which is how `.ag-label-align-top { ...; > * { ... } }` is
+ * written, and a search for `&` walks straight past it.
+ *
+ * :param nodes: The pieces of the block being examined.
+ * :param insideRule: Whether that block is itself the body of a style rule.
+ * :return: Whether anything here has to be hoisted out.
+ */
+const holdsNestedRules = (nodes: StyleNode[], insideRule: boolean): boolean =>
+  nodes.some((node) => {
+    if (node.kind === 'declarations') {
+      return false
+    }
+
+    /* A rule of any kind written inside a style rule is exactly what an older browser cannot read. */
+    if (insideRule) {
+      return true
+    }
+
+    if (OPAQUE_AT_RULES.includes(atRuleName(node.prelude))) {
+      return false
+    }
+
+    return holdsNestedRules(node.body, !node.prelude.startsWith('@'))
+  })
+
+/**
+ * Rewrite a stylesheet so that nothing in it is written inside anything else.
+ *
+ * :param css: The stylesheet being rewritten.
+ * :return: The same stylesheet with every nested rule standing on its own.
+ */
+const flattenNesting = (css: string): string => {
+  const parsed = parseNodes(css, 0).nodes
+  if (!holdsNestedRules(parsed, false)) {
+    return css
+  }
+
+  const out: string[] = []
+  flattenNodes(parsed, '', out)
+
+  return out.join('')
+}
+
+/**
+ * Decide whether the stylesheets the grid writes have to be rewritten for this browser at all.
+ *
+ * Two separate things are being asked about, one version of Chrome apart, and a browser may need either of
+ * them without needing the other. Neither missing means every sheet is left exactly as the grid wrote it.
+ */
+const needsStyleCompatibility = (): boolean => !supportsColorMix() || !supportsNesting()
+
+/**
+ * Rewrite the stylesheets the grid injected into the two things an older browser can actually read.
+ *
+ * The colours the theme derives are worked out into plain ones, and the rules the grid writes inside other
+ * rules are hoisted out to stand on their own. A browser that understands one of the two and not the other
+ * gets only the half it is missing, and the sheets a browser can read as they stand are never touched.
+ *
+ * Only the sheets the grid wrote are read at all, and only in a browser that needs it, so on everything
+ * modern this costs two feature tests and nothing else.
  */
 const applyThemeCompatibility = (root: Document | ShadowRoot = document): void => {
-  if (supportsColorMix()) {
+  if (!needsStyleCompatibility()) {
     return
   }
 
   const sheets = Array.from(root.querySelectorAll<HTMLStyleElement>(INJECTED_STYLES))
+  const mixesNeeded = !supportsColorMix()
+  const nestingNeeded = !supportsNesting()
 
   /*
    * Every sheet is read for its properties before any of them is rewritten. The grid writes the palette into
@@ -386,15 +763,21 @@ const applyThemeCompatibility = (root: Document | ShadowRoot = document): void =
    * the mixes before it had ever seen the colours they are written over.
    */
   const variables: Variables = new Map()
-  sheets.forEach((sheet) => readVariables(sheet.textContent ?? '', variables))
+  if (mixesNeeded) {
+    sheets.forEach((sheet) => readVariables(sheet.textContent ?? '', variables))
+  }
 
   sheets.forEach((sheet) => {
     const css = sheet.textContent ?? ''
-    if (!css.includes('color-mix')) {
-      return
-    }
 
-    const resolved = resolveColorMix(css, variables)
+    /*
+     * The mixes are worked out before the nesting is taken apart, because a mix is a value and the nesting
+     * is the shape around it: resolving the values first means each of them is met exactly once, however
+     * many rules the block it sits in is about to become.
+     */
+    const coloured = mixesNeeded && css.includes('color-mix') ? resolveColorMix(css, variables) : css
+    const resolved = nestingNeeded ? flattenNesting(coloured) : coloured
+
     if (resolved !== css) {
       sheet.textContent = resolved
     }
@@ -413,7 +796,7 @@ const applyThemeCompatibility = (root: Document | ShadowRoot = document): void =
  * :param root: The document or shadow root the grid injected its stylesheets into.
  */
 const observeThemeCompatibility = (root: Document | ShadowRoot = document): void => {
-  if (supportsColorMix() || typeof MutationObserver === 'undefined' || observed.has(root)) {
+  if (!needsStyleCompatibility() || typeof MutationObserver === 'undefined' || observed.has(root)) {
     return
   }
 
@@ -445,8 +828,11 @@ const observeThemeCompatibility = (root: Document | ShadowRoot = document): void
 export type { Rgba, Variables }
 export {
   applyThemeCompatibility,
+  flattenNesting,
+  needsStyleCompatibility,
   observeThemeCompatibility,
   parseColor,
   resolveColorMix,
   supportsColorMix,
+  supportsNesting,
 }

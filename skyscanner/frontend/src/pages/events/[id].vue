@@ -133,13 +133,14 @@
         <span class="event-page__fact-label">INFORMATION</span>
         <!--
           The information of an event is free text. The breaks somebody typed into it are part of what they
-          wrote, so the paragraph is laid out to keep them rather than to run them all into one line.
+          wrote, so the paragraph is laid out to keep them rather than to run them all into one line, and
+          the addresses inside it are read out so that a ticket or a wiki page written here is reachable.
         -->
         <p
           v-if="event.notes.trim().length > 0"
           class="event-page__notes"
         >
-          {{ event.notes }}
+          <UiLinkedText :text="event.notes" />
         </p>
         <p
           v-else
@@ -147,6 +148,24 @@
         >
           No information was added yet.
         </p>
+      </section>
+
+      <!--
+        Everything the event was written with beyond the facts above - the fields its industry declared, the
+        ones its type asks for and anything a script left on it. The expanded row of the inventory has shown
+        these all along; the page of the event itself showed the built in facts and stopped, so the one
+        surface dedicated to a single event was the one place its own answers could not be read.
+      -->
+      <section class="event-page__attributes">
+        <AttributesTable
+          :columns="eventAttributeColumns"
+          :row="eventRow"
+          :taxonomy="industries"
+          title="Additional Event Attributes"
+          empty-text="This event carries no additional attributes."
+          @open="onPreview"
+          @download="onDownload"
+        />
       </section>
 
       <section class="event-page__files">
@@ -323,18 +342,20 @@ import EntityTable from '@/components/EntityTable.vue'
 import EventFileTree from '@/components/EventFileTree.vue'
 import FilePreview from '@/components/FilePreview.vue'
 import RevisionHistoryDialog from '@/components/RevisionHistoryDialog.vue'
+import { AttributesTable, UiLinkedText } from '@truth-platform/core-ui'
 import SubscribeDialog from '@/components/SubscribeDialog.vue'
 import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import { SUBSCRIPTIONS_ENABLED } from '@/features'
 import { deleteEvent, readEvent, updateEvent } from '@/requests/events'
-import { readEntityColumns } from '@/requests/grid'
+import { readEntityColumns, readEventColumns } from '@/requests/grid'
 import { downloadArtifact, downloadEntityArchive, toArchiveSources } from '@/requests/storage'
 import { downloadEventFiles } from '@/requests/templates'
 import { downloadBlob } from '@truth-platform/core-ui'
 import { taxonomyToken } from '@truth-platform/core-ui'
 import { experimentResultToken } from '@/utils/colors'
-import { entityToRow } from '@/utils/rows'
+import { attributeColumns } from '@truth-platform/core-ui'
+import { entityToRow, eventToRow } from '@/utils/rows'
 
 const STATUS_OPTIONS: EventStatus[] = ['draft', 'operational']
 
@@ -345,6 +366,7 @@ const { notify, reportError } = useSnackbar()
 
 const event = ref<EventDetail | null>(null)
 const entityColumns = ref<GeneratedColumn[]>([])
+const eventColumns = ref<GeneratedColumn[]>([])
 const activeTab = ref<string>('')
 const selectedArtifact = ref<Artifact | null>(null)
 const editDialog = ref<boolean>(false)
@@ -364,6 +386,17 @@ const typeNames = computed<string>(() =>
 
 const industryChipToken = computed<string>(() =>
   event.value === null ? 'chip-industry-violet' : taxonomyToken(event.value.industry, industries.value),
+)
+
+/* The event flattened the way the generated columns address it, which is the shape the inventory hands them. */
+const eventRow = computed<GridRow>(() => (event.value === null ? { id: '' } : eventToRow(event.value)))
+
+/*
+ * The declared dynamic fields of this industry, followed by whatever the event carries under a key nobody
+ * declared - the same reading the expanded row of the inventory does, through the same helper.
+ */
+const eventAttributeColumns = computed<GeneratedColumn[]>(() =>
+  attributeColumns(eventColumns.value, eventRow.value),
 )
 
 const entityGroups = computed<EntityGroup[]>(() => {
@@ -390,7 +423,12 @@ const reload = async (): Promise<void> => {
   try {
     const loaded = await readEvent(eventId.value)
     event.value = loaded
-    entityColumns.value = (await readEntityColumns(loaded.industry, null)).columns
+    const [entities, events] = await Promise.all([
+      readEntityColumns(loaded.industry, null),
+      readEventColumns(loaded.industry),
+    ])
+    entityColumns.value = entities.columns
+    eventColumns.value = events.columns
     if (activeTab.value.length === 0 || !entityGroups.value.some((group) => group.key === activeTab.value)) {
       activeTab.value = entityGroups.value[0]?.key ?? ''
     }
@@ -631,6 +669,14 @@ watch(eventId, reload)
 
 .event-page__notes--empty {
   opacity: 0.7;
+}
+
+/* The attributes sit in a panel of their own, laid out like the information block above them. */
+.event-page__attributes {
+  background-color: rgb(var(--v-theme-surface));
+  border-radius: 0.5rem;
+  padding: 1rem 1.5rem;
+  min-inline-size: 0;
 }
 
 .event-page__files-heading {

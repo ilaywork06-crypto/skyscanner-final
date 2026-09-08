@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from skyscanner_models.common import OperationResult, UserContext
+from skyscanner_models.common import OperationResult, RenameResult, UserContext
 from skyscanner_models.enums import FieldScope, Permission
 from skyscanner_models.field import FieldCreateRequest, FieldResponse, FieldUpdateRequest
 
@@ -75,6 +75,28 @@ async def create_field(
     :return: The stored declaration.
     """
     return await service.create_field(request=request, user=user)
+
+
+@ROUTER.get("/{field_id}/rename", response_model=RenameResult)
+async def preview_field_rename(
+    field_id: str,
+    key: str,
+    service: FieldServiceDependency,
+    _: Annotated[UserContext, Depends(require_permission(Permission.FIELD_MANAGE))],
+) -> RenameResult:
+    """
+    Say what renaming a declaration would touch, so that the change is made knowing its size.
+
+    A value is stored under the key of the declaration that asked for it - twice over, in the list the schema
+    reads and in the flat sub document the columns are filtered over - so renaming one moves every value ever
+    written under it. This answers how many there are without moving any of them.
+
+    :param field_id: Identifier of the declaration that would be renamed.
+    :param key: Key it would be renamed to.
+    :param service: Owner of the dynamic schema.
+    :return: How many documents of each collection carry the current key.
+    """
+    return await service.preview_rename(field_id=field_id, key=key)
 
 
 @ROUTER.patch("/{field_id}", response_model=FieldResponse)

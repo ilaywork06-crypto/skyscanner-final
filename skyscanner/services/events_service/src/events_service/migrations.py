@@ -13,6 +13,7 @@ from skyscanner_models.enums import OptionalEventField
 
 from events_service.constants import (
     EVENTS_COLLECTION,
+    PLATFORMS_COLLECTION,
     EVENT_TYPE_KIND,
     INDUSTRIES_COLLECTION,
     PLATFORM_TYPE_KIND,
@@ -47,6 +48,7 @@ async def migrate_documents(provider: MongoProvider) -> None:
     await _rename_entity_origins(provider=provider)
     await _widen_platforms(provider=provider)
     await _widen_declaration_industries(provider=provider)
+    await _move_platforms_out_of_the_types(provider=provider)
 
 
 async def _rename_entity_origins(provider: MongoProvider) -> None:
@@ -147,6 +149,53 @@ async def _widen_platforms(provider: MongoProvider) -> None:
             result.modified_count,
             len(names),
         )
+
+
+async def _move_platforms_out_of_the_types(provider: MongoProvider) -> None:
+    """
+    Carry every declared platform out of the types collection and into one of its own.
+
+    A platform was filed with the types because it is written down like one - a key, a label and the
+    industries it belongs to. What a thing is written like is not what it is: a platform is a piece of
+    equipment an event ran on rather than a shape an event takes, and filing it with the types is what buried
+    it two levels inside a page about something else. It has its own collection and its own page now.
+
+    The declarations are copied rather than moved, and the ones left behind are marked as removed. A copy
+    that fails halfway therefore leaves a store where the platforms are still readable at their old address
+    rather than one where they are readable at neither, and running this a second time changes nothing.
+
+    :param provider: Owner of the shared motor client.
+    """
+    types = provider.collection(TYPES_COLLECTION)
+    platforms = provider.collection(PLATFORMS_COLLECTION)
+    carried = 0
+
+    async for stored in types.find({"kind": PLATFORM_TYPE_KIND, "deleted": {"$ne": True}}):
+        await platforms.update_one(
+            {"_id": stored["_id"]},
+            {
+                "$setOnInsert": {
+                    "key": stored.get("key", ""),
+                    "name": stored.get("name", ""),
+                    "description": stored.get("description", ""),
+                    "industries": list(stored.get("industries", [])),
+                    "order": int(stored.get("order", 100)),
+                    "deleted": False,
+                    "created_at": stored.get("created_at", utc_now()),
+                },
+            },
+            upsert=True,
+        )
+        carried += 1
+
+    if carried:
+        # The originals stay in the store, marked as removed like everything else that is taken out of use,
+        # so a deployment that has to go back to the previous version finds its platforms where it left them.
+        await types.update_many(
+            {"kind": PLATFORM_TYPE_KIND, "deleted": {"$ne": True}},
+            {"$set": {"deleted": True, "deleted_at": utc_now(), "deleted_by": "migration"}},
+        )
+        LOGGER.info("Carried %d platforms out of the types and into their own collection", carried)
 
 
 async def _widen_declaration_industries(provider: MongoProvider) -> None:

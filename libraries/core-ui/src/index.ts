@@ -16,6 +16,7 @@ import DynamicCell from './components/DynamicCell.vue'
 import DynamicFieldInput from './components/DynamicFieldInput.vue'
 import FileList from './components/FileList.vue'
 import HighlightedText from './components/HighlightedText.vue'
+import UiLinkedText from './components/UiLinkedText.vue'
 import PaginationBar from './components/PaginationBar.vue'
 import QuickFilters from './components/QuickFilters.vue'
 import UiChip from './components/UiChip.vue'
@@ -75,6 +76,7 @@ export type { FieldChange, Revision, RevisionTarget } from './models/revision'
 export type { TableTemplate, TemplateColumn, TemplateCreateRequest } from './models/template'
 export type { GridContext } from './utils/grid-context'
 export type { HighlightSegment } from './utils/highlight'
+export type { LinkSegment } from './utils/links'
 export type { ThemeColors } from './utils/grid-theme'
 
 export { configureThemes, useAppTheme } from './composables/useAppTheme'
@@ -83,7 +85,7 @@ export { useDirtyGuard } from './composables/useDirtyGuard'
 export { useSnackbar } from './composables/useSnackbar'
 
 export type { SheetContent } from './utils/sheets'
-export { delimiterOf, parseDelimited, readWorkbook } from './utils/sheets'
+export { delimiterOf, parseDelimited, readWorkbook, wholeLines } from './utils/sheets'
 export { ENTER_TO_ADD_HINT } from './utils/hints'
 export { readActiveTemplate, writeActiveTemplate } from './utils/active-template'
 export { applicableFields, dependenciesHold, dependencyHolds, isFilled } from './utils/dependencies'
@@ -117,6 +119,8 @@ export {
 } from './utils/grid-context'
 export { buildGridTheme } from './utils/grid-theme'
 export { matchesTerm, previewAround, splitHighlights } from './utils/highlight'
+export { installRuntimeShims } from './utils/runtime'
+export { holdsLink, splitLinks } from './utils/links'
 export {
   CHIP_COLOUR_NAMES,
   CHIP_PALETTE,
@@ -151,6 +155,7 @@ export {
   ExpandCellRenderer,
   FileList,
   HighlightedText,
+  UiLinkedText,
   JsonCellRenderer,
   PaginationBar,
   QuickFilters,

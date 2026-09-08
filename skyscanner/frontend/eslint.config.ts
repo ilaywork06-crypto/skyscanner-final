@@ -22,6 +22,17 @@ export default typescriptEslint.config(
       'vue/component-tags-order': ['error', { order: ['template', 'script', 'style'] }],
       'vue/block-order': ['error', { order: ['template', 'script', 'style'] }],
       'vue/no-v-html': 'off',
+      /*
+       * A component used in a template but never imported is neither a build error nor a type error: the
+       * compiler emits a runtime lookup, the lookup finds nothing, and the element renders as nothing at
+       * all. That is how four dialogs came to raise a confirmation nobody could see, and it stayed
+       * invisible to every other check here. This rule is the one that sees it.
+       *
+       * Vuetify's own components are registered on the application rather than imported, so they are
+       * genuinely undefined as far as this rule can tell and are named out of it. Everything else has to be
+       * imported where it is used.
+       */
+      'vue/no-undef-components': ['error', { ignorePatterns: ['^v-', '^router-'] }],
     },
   },
 )

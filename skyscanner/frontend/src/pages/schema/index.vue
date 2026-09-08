@@ -11,7 +11,7 @@
         <v-btn
           color="primary"
           prepend-icon="mdi-plus"
-          @click="dialog = true"
+          @click="openCreate"
         >
           Declare a field
         </v-btn>
@@ -58,10 +58,17 @@
             <td>{{ field.type }}{{ field.array ? '[]' : '' }}</td>
             <td>{{ field.industry ?? 'shared' }}</td>
             <td>{{ field.entity_type ?? '—' }}</td>
-            <td>{{ field.additional ? 'additional data' : 'entity fields' }}</td>
+            <td>{{ sectionLabel(field) }}</td>
             <td>{{ field.required ? 'yes' : 'no' }}</td>
             <td>{{ field.visible ? 'yes' : 'no' }}</td>
             <td class="schema__row-actions">
+              <v-btn
+                icon="mdi-pencil-outline"
+                size="x-small"
+                variant="text"
+                :aria-label="`Edit ${field.name}`"
+                @click="openEdit(field)"
+              />
               <v-btn
                 icon="mdi-delete-outline"
                 size="x-small"
@@ -76,7 +83,7 @@
               colspan="9"
               class="schema__empty"
             >
-              No fields were declared for this scope yet.
+              {{ emptyText }}
             </td>
           </tr>
         </tbody>
@@ -88,17 +95,48 @@
       max-width="40rem"
     >
       <v-card>
-        <v-card-title>Declare a field</v-card-title>
+        <v-card-title>{{ edited === null ? 'Declare a field' : `Edit ${edited.name}` }}</v-card-title>
         <v-card-text class="schema__dialog">
           <v-text-field
             v-model="draftName"
             label="Name"
             @update:model-value="onNameChange"
           />
+          <!--
+            The key is where every value answering this field is actually stored - twice over, in the list
+            the schema reads and in the flat sub document the columns are filtered over - so changing one
+            moves every value ever written under it. It is held behind a deliberate act, and what the change
+            would cost is read from the service and shown before anybody commits to it.
+          -->
           <v-text-field
             v-model="draftKey"
             label="Key"
-          />
+            :disabled="edited !== null && !renaming"
+            :hint="keyHint"
+            persistent-hint
+          >
+            <template
+              v-if="edited !== null && !renaming"
+              #append-inner
+            >
+              <v-btn
+                size="x-small"
+                variant="text"
+                @click="startRename"
+              >
+                CHANGE
+              </v-btn>
+            </template>
+          </v-text-field>
+
+          <v-alert
+            v-if="renamePreview !== null"
+            type="warning"
+            variant="tonal"
+            density="compact"
+          >
+            {{ renameSummary }}
+          </v-alert>
           <v-select
             v-model="draftType"
             :items="TYPE_OPTIONS"
@@ -121,6 +159,7 @@
             were declared rather than typed from memory. Leaving it empty gives every entity the field.
           -->
           <v-select
+            v-if="!draftIsEventScope"
             v-model="draftEntityType"
             :items="entityTypeItems"
             item-title="title"
@@ -176,8 +215,14 @@
             A field may only apply once another one holds a value, which is what the requirements called a
             depends on. Every condition declared here has to hold before the field is asked for at all, and
             only fields the form can actually read are offered - a condition on anything else never holds.
+
+            The conditions describe one entity form, so an event field is not offered them: there is no form
+            for it to point into, and a condition that can never hold is a condition nobody should declare.
           -->
-          <div class="schema__dependencies">
+          <div
+            v-if="!draftIsEventScope"
+            class="schema__dependencies"
+          >
             <div class="schema__dependencies-head">
               <span class="schema__dependencies-title">Depends on</span>
               <v-btn
@@ -263,9 +308,9 @@
           <v-btn
             color="primary"
             :loading="saving"
-            @click="onCreate"
+            @click="onSave"
           >
-            Declare
+            {{ edited === null ? 'Declare' : 'Save' }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -278,14 +323,22 @@ import type { FieldType } from '@/models/common'
 import { slugify } from '@truth-platform/core-ui'
 import type { EntityType } from '@/models/entity'
 import type { DependencyOperator, FieldDefinition, FieldDependency } from '@truth-platform/core-ui'
+import type { RenameResult } from '@/requests/schema'
 
 interface SelectItem {
   title: string
   value: string | null
 }
 
-/** Which half of the entity form a declaration belongs to. */
-type FieldSection = 'own' | 'additional'
+/**
+ * What the page is showing.
+ *
+ * The two halves of the entity form have always been here. The event fields joined them: they are the same
+ * kind of thing declared the same way - a name, a type, its allowed values and the industry it belongs to -
+ * and they were being declared on the Types page, which is a page about the shapes an event and an entity
+ * take rather than about the questions they answer. A field is a question. It belongs here.
+ */
+type FieldSection = 'event' | 'own' | 'additional'
 
 interface SectionItem {
   title: string
@@ -314,8 +367,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
-import { client } from '@/requests/client'
-import { listEntityTypes, listFields } from '@/requests/schema'
+import {
+  createField,
+  deleteField,
+  listEntityTypes,
+  listFields,
+  previewFieldRename,
+  updateField,
+} from '@/requests/schema'
 import { ENTER_TO_ADD_HINT } from '@truth-platform/core-ui'
 
 /*
@@ -323,6 +382,7 @@ import { ENTER_TO_ADD_HINT } from '@truth-platform/core-ui'
  * table, so the only thing the section decides is where the field is asked for.
  */
 const SECTION_ITEMS: SectionItem[] = [
+  { title: 'Event fields', value: 'event' },
   { title: 'Entity fields', value: 'own' },
   { title: 'Additional data', value: 'additional' },
 ]
@@ -343,16 +403,23 @@ const TYPE_OPTIONS: FieldType[] = [
 const { industries, load } = useIndustries()
 const { notify, reportError } = useSnackbar()
 
-const section = ref<FieldSection>('own')
+const section = ref<FieldSection>('event')
 const industry = ref<string | null>(null)
 const fields = ref<FieldDefinition[]>([])
 const dialog = ref<boolean>(false)
 const saving = ref<boolean>(false)
 
+/* The declaration being changed, or nothing while a new one is being written. */
+const edited = ref<FieldDefinition | null>(null)
+
+/* Whether the key of a stored declaration is being changed, which is a deliberate act rather than a typo. */
+const renaming = ref<boolean>(false)
+const renamePreview = ref<RenameResult | null>(null)
+
 const draftName = ref<string>('')
 const draftKey = ref<string>('')
 const draftType = ref<FieldType>('string')
-const draftSection = ref<FieldSection>('own')
+const draftSection = ref<FieldSection>('event')
 const draftIndustry = ref<string | null>(null)
 const draftEntityType = ref<string | null>(null)
 const draftOptions = ref<string[]>([])
@@ -401,6 +468,11 @@ const entityTypeItems = computed<SelectItem[]>(() => [
   })),
 ])
 
+/* An event field is declared for the event itself; the other two sections describe the entities inside it. */
+const isEventScope = computed<boolean>(() => section.value === 'event')
+
+const draftIsEventScope = computed<boolean>(() => draftSection.value === 'event')
+
 const chosenEntityType = computed<EntityType | null>(
   () => entityTypes.value.find((candidate) => candidate.key === draftEntityType.value) ?? null,
 )
@@ -414,12 +486,55 @@ const typeIndustries = computed<string[]>(() => chosenEntityType.value?.industri
  * type that serves several is the one case where the answer still has to be picked out of them.
  */
 const industryIsAsked = computed<boolean>(
-  () => chosenEntityType.value === null || typeIndustries.value.length > 1,
+  () => draftIsEventScope.value || chosenEntityType.value === null || typeIndustries.value.length > 1,
 )
 
 const resolvedIndustry = computed<string | null>(() =>
   industryIsAsked.value ? draftIndustry.value : (typeIndustries.value[0] ?? null),
 )
+
+/** What the service said a rename would move, put into a sentence. */
+const renameSummary = computed<string>(() => {
+  const preview = renamePreview.value
+  if (preview === null) {
+    return ''
+  }
+
+  const counted = Object.entries(preview.affected).filter(([, amount]) => amount > 0)
+  if (counted.length === 0) {
+    return `Nothing was ever stored under ${preview.previous_key}, so this rename only changes the declaration.`
+  }
+
+  const parts = counted.map(([collection, amount]) => `${amount} ${collection}`)
+
+  return `Saving moves every value in ${parts.join(', ')} from ${preview.previous_key} to ${preview.key}.`
+})
+
+/** What the listing says when the chosen section holds nothing yet. */
+const emptyText = computed<string>(() =>
+  isEventScope.value
+    ? 'No event field was declared yet. An event type asks for the ones declared here.'
+    : 'No fields were declared for this scope yet.',
+)
+
+/** Which section a stored declaration belongs to, read back the way the selector spells it. */
+const sectionLabel = (field: FieldDefinition): string => {
+  if (field.scope === 'event') {
+    return 'event fields'
+  }
+
+  return field.additional ? 'additional data' : 'entity fields'
+}
+
+const keyHint = computed<string>(() => {
+  if (edited.value === null) {
+    return 'How every value answering this field is stored.'
+  }
+
+  return renaming.value
+    ? 'Every value ever written under the old key is moved onto the new one when you save.'
+    : 'Every value answering this field is stored under it, so changing it rewrites those values.'
+})
 
 const derivedIndustryNote = computed<string>(() => {
   const type = chosenEntityType.value?.name ?? ''
@@ -460,7 +575,9 @@ const reload = async (): Promise<void> => {
     /* The listing follows the filters, while the entity types are read whole: the dialog reads the
        industry off the type the user picks, so it may not only offer the types of one industry. */
     const [declared, types] = await Promise.all([
-      listFields({ scope: 'entity', industry: industry.value, additional: section.value === 'additional' }),
+      isEventScope.value
+        ? listFields({ scope: 'event', industry: industry.value })
+        : listFields({ scope: 'entity', industry: industry.value, additional: section.value === 'additional' }),
       listEntityTypes(),
     ])
     fields.value = declared
@@ -478,6 +595,12 @@ const reload = async (): Promise<void> => {
  * follow the draft itself: its own scope and industry, plus the event of an entity.
  */
 const loadCandidates = async (): Promise<void> => {
+  if (draftIsEventScope.value) {
+    ownScopeFields.value = []
+
+    return
+  }
+
   const owner = resolvedIndustry.value
   try {
     const entityFields = await listFields({
@@ -508,48 +631,125 @@ const refreshCandidates = async (): Promise<void> => {
   draftDependencies.value = draftDependencies.value.filter((dependency) => offered.has(dependency.field))
 }
 
+/* The key follows the name while a new field is written, and a stored one is left exactly as it is. */
 const onNameChange = (value: string) => {
-  draftKey.value = slugify(value)
+  if (edited.value === null) {
+    draftKey.value = slugify(value)
+  }
 }
 
-const onCreate = async (): Promise<void> => {
+/** Put the form back to an empty declaration of whatever section the page is showing. */
+const resetDraft = () => {
+  edited.value = null
+  renaming.value = false
+  renamePreview.value = null
+  draftName.value = ''
+  draftKey.value = ''
+  draftType.value = 'string'
+  draftSection.value = section.value
+  draftIndustry.value = industry.value
+  draftEntityType.value = null
+  draftOptions.value = []
+  draftDescription.value = ''
+  draftDependencies.value = []
+  draftRequired.value = false
+  draftVisible.value = true
+}
+
+const openCreate = () => {
+  resetDraft()
+  dialog.value = true
+}
+
+/**
+ * Open a stored declaration for changing, with its key held back behind a deliberate act.
+ */
+const openEdit = (field: FieldDefinition) => {
+  resetDraft()
+  edited.value = field
+  draftName.value = field.name
+  draftKey.value = field.key
+  draftType.value = field.type
+  draftSection.value = field.scope === 'event' ? 'event' : field.additional ? 'additional' : 'own'
+  draftIndustry.value = field.industry
+  draftEntityType.value = field.entity_type
+  draftOptions.value = [...field.metadata.options]
+  draftDescription.value = field.metadata.description ?? ''
+  draftDependencies.value = field.depends_on.map((dependency) => ({ ...dependency }))
+  draftRequired.value = field.required
+  draftVisible.value = field.visible
+  dialog.value = true
+}
+
+/**
+ * Unlock the key and ask the service what changing it would cost before anybody commits to it.
+ */
+const startRename = async (): Promise<void> => {
+  renaming.value = true
+  const field = edited.value
+  if (field === null) {
+    return
+  }
+
+  try {
+    renamePreview.value = await previewFieldRename(field.id, field.key)
+  } catch (error) {
+    reportError(error)
+  }
+}
+
+/** The descriptors a declaration renders with, which both writing and changing one hand over. */
+const draftMetadata = () => ({
+  allowed_file_types: [],
+  options: draftOptions.value,
+  unit: null,
+  description: draftDescription.value.length > 0 ? draftDescription.value : null,
+  placeholder: null,
+  group: null,
+})
+
+const onSave = async (): Promise<void> => {
   saving.value = true
   try {
-    await client.post('/fields', {
-      name: draftName.value,
-      key: draftKey.value,
-      type: draftType.value,
-      array: false,
-      default: null,
-      required: draftRequired.value,
-      scope: 'entity',
-      industry: resolvedIndustry.value,
-      entity_type: draftEntityType.value,
-      additional: draftSection.value === 'additional',
-      metadata: {
-        allowed_file_types: [],
-        options: draftOptions.value,
-        unit: null,
-        description: draftDescription.value.length > 0 ? draftDescription.value : null,
-        placeholder: null,
-        group: null,
-      },
-      constraints: [],
-      depends_on: draftDependencies.value,
-      filterable: true,
-      sortable: true,
-      editable: true,
-      visible: draftVisible.value,
-      order: 100,
-    })
-    notify('The field was declared', 'success')
+    const field = edited.value
+    if (field === null) {
+      await createField({
+        name: draftName.value,
+        key: draftKey.value,
+        type: draftType.value,
+        array: false,
+        default: null,
+        required: draftRequired.value,
+        scope: draftIsEventScope.value ? 'event' : 'entity',
+        industry: resolvedIndustry.value,
+        entity_type: draftIsEventScope.value ? null : draftEntityType.value,
+        additional: draftSection.value === 'additional',
+        metadata: draftMetadata(),
+        constraints: [],
+        depends_on: draftDependencies.value,
+        filterable: true,
+        sortable: true,
+        editable: true,
+        visible: draftVisible.value,
+        order: 100,
+      })
+      notify('The field was declared', 'success')
+    } else {
+      const moved = draftKey.value.trim() !== field.key
+      const changed = await updateField(field.id, {
+        key: moved ? draftKey.value.trim() : undefined,
+        name: draftName.value,
+        type: draftType.value,
+        required: draftRequired.value,
+        visible: draftVisible.value,
+        metadata: draftMetadata(),
+        depends_on: draftDependencies.value,
+      })
+      notify(moved ? `Every value is now stored under ${changed.key}` : 'The field was changed', 'success')
+    }
+
     dialog.value = false
-    draftName.value = ''
-    draftKey.value = ''
-    draftOptions.value = []
-    draftDescription.value = ''
-    /* The conditions belonged to the field that was just declared, not to the next one typed into the form. */
-    draftDependencies.value = []
+    resetDraft()
     await reload()
   } catch (error) {
     reportError(error)
@@ -560,8 +760,8 @@ const onCreate = async (): Promise<void> => {
 
 const onDelete = async (fieldId: string): Promise<void> => {
   try {
-    await client.delete(`/fields/${fieldId}`)
-    notify('The field was removed', 'success')
+    await deleteField(fieldId)
+    notify('The field declaration was removed', 'success')
     await reload()
   } catch (error) {
     reportError(error)

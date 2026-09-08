@@ -16,6 +16,7 @@ from events_service.repositories.outbox_repository import OutboxRepository
 from events_service.repositories.revision_repository import RevisionRepository
 from events_service.repositories.subscription_repository import SubscriptionRepository
 from events_service.repositories.industry_repository import IndustryRepository
+from events_service.repositories.platform_repository import PlatformRepository
 from events_service.repositories.template_repository import TemplateRepository
 from events_service.repositories.type_repository import TypeRepository
 
@@ -44,6 +45,7 @@ async def prepare_database(provider: MongoProvider) -> None:
         events,
         fields,
         TypeRepository(provider=provider),
+        PlatformRepository(provider=provider),
         IndustryRepository(provider=provider),
         TemplateRepository(provider=provider),
         subscriptions,

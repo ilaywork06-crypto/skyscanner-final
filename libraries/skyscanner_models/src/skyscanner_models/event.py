@@ -80,6 +80,11 @@ class EventTypeUpdateRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    # Changing a key is not changing a label. An event names the types, the platforms and the fields it
+    # answers by their key rather than pointing at the declarations, so a key that moves has to be carried
+    # through every document naming it - which the service does in one pass and reports the size of.
+    key: str | None = Field(default=None, description="New machine key, carried through every document naming it")
+
     name: str | None = Field(default=None, description="New label of the event type")
     description: str | None = Field(default=None, description="New explanation of what the type covers")
     industries: list[str] | None = Field(default=None, description="New industries the type belongs to")

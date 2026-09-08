@@ -59,6 +59,11 @@ class EntityTypeUpdateRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    # Changing a key is not changing a label. An event names the types, the platforms and the fields it
+    # answers by their key rather than pointing at the declarations, so a key that moves has to be carried
+    # through every document naming it - which the service does in one pass and reports the size of.
+    key: str | None = Field(default=None, description="New machine key, carried through every document naming it")
+
     name: str | None = Field(default=None, description="New label of the entity type")
     description: str | None = Field(default=None, description="New explanation of what the type holds")
     icon: str | None = Field(default=None, description="New icon rendered next to the entity type")

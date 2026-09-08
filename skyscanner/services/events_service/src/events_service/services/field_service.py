@@ -14,7 +14,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from skyscanner_common.datetime_utils import ensure_utc, utc_now
 from skyscanner_common.errors import ConflictError, NotFoundError, ValidationError
-from skyscanner_models.common import Coordinate, MetadataAttribute, UserContext
+from skyscanner_models.common import Coordinate, MetadataAttribute, RenameResult, UserContext
 from skyscanner_models.enums import DependencyOperator, FieldScope, FieldType
 from skyscanner_models.field import (
     FieldCreateRequest,
@@ -25,6 +25,7 @@ from skyscanner_models.field import (
 
 from events_service.documents import FieldDocument
 from events_service.repositories.field_repository import FieldRepository
+from events_service.services.rename_service import RenameService
 
 # ----- CONSTS ----- #
 
@@ -39,13 +40,15 @@ class FieldService:
     Owner of the dynamic schema, both of the declarations themselves and of the values that follow them.
     """
 
-    def __init__(self, repository: FieldRepository) -> None:
+    def __init__(self, repository: FieldRepository, renames: RenameService) -> None:
         """
-        Bind the service to the repository of the field declarations.
+        Bind the service to the declarations and to the rewriter that carries a changed key through.
 
         :param repository: Persistence of the field declarations.
+        :param renames: Owner of the rewrites a changed key costs across the stored values.
         """
         self._repository = repository
+        self._renames = renames
 
     async def list_fields(
         self,
@@ -107,6 +110,76 @@ class FieldService:
 
         return document.to_response()
 
+    async def preview_rename(self, field_id: str, key: str) -> RenameResult:
+        """
+        Say what renaming a declaration would touch, without touching any of it.
+
+        Every value ever written under the key moves with it, in both of the places a dynamic value is
+        stored, so this is the one edit on the schema page with consequences all over the inventory. The
+        size of it is answered before it is made rather than after.
+
+        :param field_id: Identifier of the declaration that would be renamed.
+        :param key: Key it would be renamed to.
+        :return: How many documents of each collection carry the current key.
+        :raises NotFoundError: When the identifier is unknown.
+        """
+        document = await self._require(field_id=field_id)
+        affected = await self._renames.rename_field(
+            old=document.key,
+            new=key,
+            scope=document.scope,
+            apply=False,
+        )
+
+        return RenameResult(key=key, previous_key=document.key, affected=affected)
+
+    async def _require(self, field_id: str) -> FieldDocument:
+        """
+        Read a declaration by its identifier, refusing one that does not exist.
+
+        :param field_id: Identifier of the declaration.
+        :return: The stored declaration.
+        :raises NotFoundError: When the identifier is unknown.
+        """
+        document = await self._repository.find_by_id(identifier=field_id)
+        if document is None:
+            raise NotFoundError(message="The field declaration does not exist", details={"id": field_id})
+
+        return document
+
+    async def _move_key(self, document: FieldDocument, updates: dict[str, Any]) -> dict[str, int]:
+        """
+        Carry a changed key through every value stored under it, or do nothing when the key did not change.
+
+        The rewrite runs before the declaration itself is written, so a key that turns out to be taken is
+        refused with the store exactly as it was rather than half moved.
+
+        :param document: The declaration as it stands before the change.
+        :param updates: Attributes the caller wants to change, from which a key of no change is dropped.
+        :return: How many documents of each collection were rewritten.
+        :raises ConflictError: When another declaration of the same scope already holds the new key.
+        :raises ValidationError: When the new key is empty.
+        """
+        key = updates.get("key")
+        if key is None or key == document.key:
+            updates.pop("key", None)
+
+            return {}
+
+        if not isinstance(key, str) or not key.strip():
+            raise ValidationError(message="A field needs a key", details={"id": document.id})
+
+        taken = await self._repository.find_by_key(
+            key=key,
+            scope=document.scope,
+            industry=document.industry,
+            entity_type=document.entity_type,
+        )
+        if taken is not None and taken.id != document.id:
+            raise ConflictError(message="A field with this key is already declared", details={"key": key})
+
+        return await self._renames.rename_field(old=document.key, new=key, scope=document.scope)
+
     async def update_field(self, field_id: str, request: FieldUpdateRequest) -> FieldResponse:
         """
         Change a stored declaration, leaving every attribute the caller omitted untouched.
@@ -121,6 +194,7 @@ class FieldService:
             raise NotFoundError(message="The field declaration does not exist", details={"id": field_id})
 
         updates = request.model_dump(exclude_unset=True, exclude_none=True)
+        await self._move_key(document=document, updates=updates)
         updates["updated_at"] = utc_now()
         await self._repository.update_fields(identifier=field_id, updates=updates)
 

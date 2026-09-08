@@ -300,6 +300,12 @@
         >
           BACK
         </v-btn>
+        <!-- A pick large enough to be written part by part is a wait, so it is shown as one. -->
+        <UploadProgress
+          :visible="uploadVisible"
+          :percent="uploadPercent"
+          :label="uploadLabel"
+        />
         <v-spacer />
         <v-btn
           v-if="step < STEP_LABELS.length"
@@ -330,6 +336,9 @@
 
 <script lang="ts">
 import type { EventStatus, ExperimentResult, FieldType, JsonValue, OptionalEventField } from '@/models/common'
+import { DynamicFieldInput } from '@truth-platform/core-ui'
+import UploadProgress from '@/components/UploadProgress.vue'
+import { UnsavedChangesDialog } from '@truth-platform/core-ui'
 import { UiDropzone as FileDropzone, UiInfoIcon, toIsoDate } from '@truth-platform/core-ui'
 import type { EntityCreateRequest, EntityType } from '@/models/entity'
 import type { Platform } from '@/models/platform'
@@ -359,6 +368,7 @@ import { computed, ref, watch } from 'vue'
 import EntityFormFields, { emptyEntityForm, type EntityFormValue } from '@/components/EntityFormFields.vue'
 import { useDirtyGuard } from '@truth-platform/core-ui'
 import { useSnackbar } from '@truth-platform/core-ui'
+import { useUploadProgress } from '@/composables/useUploadProgress'
 import { useIndustries } from '@/composables/useIndustries'
 import { createEvent } from '@/requests/events'
 import { listEntityTypes, listEventTypes, listFields, listPlatforms } from '@/requests/schema'
@@ -387,6 +397,15 @@ const { notify, reportError } = useSnackbar()
 
 const step = ref<number>(1)
 const saving = ref<boolean>(false)
+
+/* How far the files of this pick have got, which only shows itself once it is large enough to wait for. */
+const {
+  track: trackUpload,
+  reset: resetUpload,
+  visible: uploadVisible,
+  percent: uploadPercent,
+  label: uploadLabel,
+} = useUploadProgress()
 
 const eventTypes = ref<EventType[]>([])
 const entityTypes = ref<EntityType[]>([])
@@ -670,19 +689,22 @@ const buildEntityRequests = async (): Promise<EntityCreateRequest[]> => {
         ...owner,
         kind: 'raw',
         folder: 'raw_files',
-        descriptor: `Raw files of ${draft.form.name}`,
+        onProgress: trackUpload(),
+      descriptor: `Raw files of ${draft.form.name}`,
       }),
       uploadArtifacts(draft.form.parsedFiles, {
         ...owner,
         kind: 'parsed',
         folder: 'parsed_files',
-        descriptor: `Parsed files of ${draft.form.name}`,
+        onProgress: trackUpload(),
+      descriptor: `Parsed files of ${draft.form.name}`,
       }),
       uploadArtifacts(draft.form.parsedAdditionalFiles, {
         ...owner,
         kind: 'parsed_additional',
         folder: 'parsed_additional_files',
-        descriptor: `Extra parsing products of ${draft.form.name}`,
+        onProgress: trackUpload(),
+      descriptor: `Extra parsing products of ${draft.form.name}`,
       }),
     ])
     requests.push({
@@ -725,6 +747,7 @@ const submit = async (): Promise<void> => {
       ownerId: null,
       kind: 'additional',
       folder: null,
+      onProgress: trackUpload(),
       descriptor: 'Files attached while the event was created',
     })
     const entities = await buildEntityRequests()
@@ -751,6 +774,7 @@ const submit = async (): Promise<void> => {
     reportError(error)
   } finally {
     saving.value = false
+    resetUpload()
   }
 }
 

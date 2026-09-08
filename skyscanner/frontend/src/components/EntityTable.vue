@@ -97,7 +97,7 @@
               v-else
               :column="column"
               :row="entity"
-              :industries="industries"
+              :taxonomy="industries"
               @open="emit('open', $event)"
               @download="emit('download', $event)"
             />
@@ -133,7 +133,7 @@
           <AttributesTable
             :columns="detailColumns(entity)"
             :row="entity"
-            :industries="industries"
+            :taxonomy="industries"
             title="Additional Entity Attributes"
             empty-text="This entity carries nothing beyond the columns above."
             @open="emit('open', $event)"
@@ -195,6 +195,8 @@ const MIN_WIDTH_SHARE = 0.75
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
+import { AttributesTable } from '@truth-platform/core-ui'
+import { DynamicCell } from '@truth-platform/core-ui'
 import { attributeColumns } from '@truth-platform/core-ui'
 import { readText } from '@truth-platform/core-ui'
 

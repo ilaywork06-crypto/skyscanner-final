@@ -104,6 +104,15 @@
               prepend-icon="mdi-account-group-outline"
               to="/industries"
             />
+            <!--
+              A platform is a piece of equipment an event ran on rather than a shape an event takes, so it
+              reads beside the industries rather than two levels inside a page about types.
+            -->
+            <v-list-item
+              title="Platforms"
+              prepend-icon="mdi-rocket-launch-outline"
+              to="/platforms"
+            />
             <v-list-item
               title="Schema"
               prepend-icon="mdi-table-cog"

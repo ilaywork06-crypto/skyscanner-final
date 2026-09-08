@@ -125,6 +125,16 @@ const buildGridOptions = (input: GridOptionsInput): GridOptions<GridRow> => {
     rowHeight: input.configuration.rowHeight,
     headerHeight: input.configuration.headerHeight,
     animateRows: true,
+    /*
+     * A reader has to be able to take a copy of what a cell says - an identifier to paste into a ticket, a
+     * path, a name to search for somewhere else. The table library switches text selection off by default
+     * and puts `ag-unselectable` on its own root to enforce it, which is what made the inventory the one
+     * place in the system a pointer could not pick anything up. Turning it on asks for the rows to be
+     * written in the order they are read as well, because a selection dragged across a table whose rows sit
+     * in the document in some other order picks up those rows in that order.
+     */
+    enableCellTextSelection: true,
+    ensureDomOrder: true,
     suppressCellFocus: true,
     suppressDragLeaveHidesColumns: true,
     rowSelection: {

@@ -105,19 +105,19 @@
     v-else-if="kind === 'date'"
     class="dynamic-cell__text"
   >{{ dateLabel }}</span>
-  <span
-    v-else-if="isMatch(text)"
-    class="dynamic-cell__text"
-  >
-    <HighlightedText
-      :text="text"
-      :term="search"
-    />
-  </span>
+  <!--
+    Anything else is read as text, and an address inside that text is read as an address. A field declared as
+    a string is where a ticket, a dashboard or a wiki page actually gets written down, and showing one as
+    characters left the one thing a reader wanted to do with the value as the one thing it would not do.
+  -->
   <span
     v-else
     class="dynamic-cell__text"
-  >{{ text.length > 0 ? text : EMPTY_PLACEHOLDER }}</span>
+  ><UiLinkedText
+    v-if="text.length > 0"
+    :text="text"
+    :term="isMatch(text) ? search : ''"
+  /><template v-else>{{ EMPTY_PLACEHOLDER }}</template></span>
 </template>
 
 <script lang="ts">
@@ -157,6 +157,7 @@ import { computed } from 'vue'
 
 import FileList from './FileList.vue'
 import HighlightedText from './HighlightedText.vue'
+import UiLinkedText from './UiLinkedText.vue'
 import { hashedToken, taxonomyToken } from '../utils/palette'
 import { formatCoordinate, toCoordinate } from '../utils/coordinates'
 import { useSearchTerm } from '../utils/grid-context'

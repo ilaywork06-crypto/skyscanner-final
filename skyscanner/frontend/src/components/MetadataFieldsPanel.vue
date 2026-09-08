@@ -113,6 +113,7 @@
 
 <script lang="ts">
 import type { FieldType, JsonValue } from '@/models/common'
+import { DynamicFieldInput } from '@truth-platform/core-ui'
 import { EMPTY_PLACEHOLDER } from '@truth-platform/core-ui'
 import type { FieldDefinition } from '@truth-platform/core-ui'
 

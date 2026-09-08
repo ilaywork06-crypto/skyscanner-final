@@ -21,6 +21,40 @@ interface UploadOptions {
   kind: ArtifactKind
   folder: string | null
   descriptor: string
+  /** Told how far along the whole pick is, whenever a file or a part of one lands. */
+  onProgress?: (progress: UploadProgress) => void
+}
+
+/** How much of a pick has been written, which is what a progress bar over a long upload reads. */
+interface UploadProgress {
+  /** Bytes of the pick the bucket has taken so far. */
+  written: number
+  /** Bytes the pick holds altogether. */
+  total: number
+  /** The file currently being written, for a pick that is more than one. */
+  name: string
+}
+
+/** What the service answers when an upload the browser drives itself is opened. */
+interface UploadSession {
+  upload_id: string
+  path: string
+  part_size: number
+  max_parts: number
+}
+
+/** One part of a driven upload as the bucket recorded it. */
+interface UploadPart {
+  number: number
+  etag: string
+  size_bytes: number
+}
+
+/** Which parts of an interrupted upload the bucket is already holding. */
+interface UploadStatus {
+  upload_id: string
+  path: string
+  parts: UploadPart[]
 }
 
 /** One stored file together with the path it takes inside a downloaded archive. */
@@ -56,4 +90,8 @@ export type {
   DownloadLink,
   EntityArchiveSource,
   UploadOptions,
+  UploadPart,
+  UploadProgress,
+  UploadSession,
+  UploadStatus,
 }

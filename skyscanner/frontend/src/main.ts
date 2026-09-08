@@ -9,6 +9,17 @@ import { routes } from 'vue-router/auto-routes'
 import App from '@/App.vue'
 import { SUBSCRIPTIONS_ENABLED } from '@/features'
 import vuetify from '@/plugins/vuetify'
+import { installRuntimeShims } from '@truth-platform/core-ui'
+
+/*
+ * The methods an older browser is opened without, put in place before anything reaches for one.
+ *
+ * The bundler rewrites syntax for the floor named in `vite.config.ts` and leaves methods entirely alone, so
+ * a component library calling `findLast` throws on a browser that predates it. This has to run before the
+ * application is created, because the first thing that would meet one of them is the render of the first
+ * page rather than anything here.
+ */
+installRuntimeShims()
 
 /** The address of the subscriptions page, and the page a visitor is sent to while it is switched off. */
 const SUBSCRIPTIONS_PATH = '/subscriptions'

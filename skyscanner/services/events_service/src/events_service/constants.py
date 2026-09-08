@@ -24,6 +24,7 @@ EVENTS_COLLECTION: str = "events"
 FIELDS_COLLECTION: str = "fields"
 INDUSTRIES_COLLECTION: str = "industries"
 TYPES_COLLECTION: str = "types"
+PLATFORMS_COLLECTION: str = "platforms"
 TEMPLATES_COLLECTION: str = "templates"
 SUBSCRIPTIONS_COLLECTION: str = "subscriptions"
 COUNTERS_COLLECTION: str = "counters"
@@ -34,8 +35,12 @@ EVENT_ID_COUNTER: str = "event_id"
 
 EVENT_TYPE_KIND: str = "event"
 ENTITY_TYPE_KIND: str = "entity"
-# A platform is declared exactly like a type is - a key, a label and the industries it belongs to - so it
-# shares their collection and their service instead of growing a second copy of all three layers.
+# A platform used to be declared as a third kind of type, sharing the collection and the service of the two
+# real ones because it is written down the same way. What a thing is written like is not what it is: a
+# platform is a piece of equipment an event ran on, not a shape an event or an entity takes, and filing it
+# with the types is what buried it two levels down a page about something else. It has its own collection
+# and its own page now, beside the industries it reads like. The kind is kept because the documents written
+# before the move carry it, and `migrations` reads it to find them.
 PLATFORM_TYPE_KIND: str = "platform"
 
 FIXED_EVENT_KEYS: frozenset[str] = frozenset(

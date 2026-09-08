@@ -12,7 +12,7 @@
       <AttributesTable
         :columns="eventAttributeColumns"
         :row="eventRow"
-        :industries="industries"
+        :taxonomy="industries"
         title="Additional Event Attributes"
         empty-text="This event carries no additional attributes."
         @open="emit('open', $event)"
@@ -124,6 +124,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import AddEntityDialog from '@/components/AddEntityDialog.vue'
 import EntityTable from '@/components/EntityTable.vue'
+import { AttributesTable } from '@truth-platform/core-ui'
 import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import { listEntities } from '@/requests/entities'

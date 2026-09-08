@@ -338,20 +338,6 @@ class TypeDocument(SoftDeletable):
             industries=list(self.industries),
         )
 
-    def to_platform(self) -> PlatformResponse:
-        """
-        Project the stored declaration into the platform representation the wizard offers.
-
-        :return: The API representation of the platform.
-        """
-        return PlatformResponse(
-            id=self.id,
-            key=self.key,
-            name=self.name,
-            description=self.description,
-            industries=list(self.industries),
-        )
-
     def to_reference(self) -> ObjectTypeReference:
         """
         Project the stored type into the denormalised reference kept inside the documents.
@@ -395,6 +381,41 @@ class IndustryDocument(SoftDeletable):
             modules=list(self.modules),
             event_count=event_count,
             created_at=self.created_at,
+        )
+
+
+class PlatformDocument(SoftDeletable):
+    """
+    One declared platform - the rig, the aircraft or the bench an event was produced on.
+
+    It reads exactly like a type declaration and is not one. A platform is a piece of equipment rather than a
+    shape an event takes, and it now lives in a collection of its own rather than as a third kind inside the
+    types. `migrations` carries the ones written before that across.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(default_factory=new_id, alias="_id", description="Identifier of the platform")
+    key: str = Field(description="Machine key of the platform")
+    name: str = Field(description="Label shown for the platform")
+    description: str = Field(default="", description="Explanation of what the platform covers")
+    # A platform may serve several industries at once, and one that names none is offered to all of them.
+    industries: list[str] = Field(default_factory=list, description="Industries the platform belongs to")
+    order: int = Field(default=100, description="Relative position of the platform in the selectors")
+    created_at: datetime = Field(default_factory=utc_now, description="UTC moment the platform was declared")
+
+    def to_response(self) -> PlatformResponse:
+        """
+        Project the stored platform into the representation handed back by the API.
+
+        :return: The API representation of the platform.
+        """
+        return PlatformResponse(
+            id=self.id,
+            key=self.key,
+            name=self.name,
+            description=self.description,
+            industries=list(self.industries),
         )
 
 

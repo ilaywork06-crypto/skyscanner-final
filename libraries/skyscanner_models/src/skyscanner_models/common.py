@@ -100,3 +100,22 @@ class OperationResult(BaseModel):
     success: bool = Field(default=True, description="Whether the requested operation completed")
     message: str = Field(default="", description="Human readable detail about the operation")
     affected: int = Field(default=0, ge=0, description="Number of documents the operation touched")
+
+
+class RenameResult(BaseModel):
+    """
+    What a rename touched, so that an act with consequences elsewhere reports them rather than being silent.
+
+    A key is stored by value all over this system, so changing one is a write against the events, the saved
+    views, the subscriptions and the declarations that name it. Anybody about to do that is owed the size of
+    it beforehand and the account of it afterwards, which is the same shape asked for twice.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    key: str = Field(description="Key the declaration is addressed by after the rename")
+    previous_key: str = Field(default="", description="Key it was addressed by before, empty when nothing moved")
+    affected: dict[str, int] = Field(
+        default_factory=dict,
+        description="How many documents of each collection carry the key",
+    )

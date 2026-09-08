@@ -72,6 +72,12 @@
         >
           {{ blockedReason }}
         </span>
+        <!-- A pick large enough to be written part by part is a wait, so it is shown as one. -->
+        <UploadProgress
+          :visible="uploadVisible"
+          :percent="uploadPercent"
+          :label="uploadLabel"
+        />
         <v-spacer />
         <v-btn
           variant="text"
@@ -147,8 +153,11 @@ import { computed, ref, watch } from 'vue'
 
 import EntityFormFields, { emptyEntityForm, type EntityFormValue } from '@/components/EntityFormFields.vue'
 import StoredFilesEditor from '@/components/StoredFilesEditor.vue'
+import UploadProgress from '@/components/UploadProgress.vue'
+import { UnsavedChangesDialog } from '@truth-platform/core-ui'
 import { useDirtyGuard } from '@truth-platform/core-ui'
 import { useSnackbar } from '@truth-platform/core-ui'
+import { useUploadProgress } from '@/composables/useUploadProgress'
 import { useIndustries } from '@/composables/useIndustries'
 import { addEntity, updateEntity } from '@/requests/entities'
 import { listEntityTypes, listFields } from '@/requests/schema'
@@ -171,6 +180,15 @@ const fields = ref<FieldDefinition[]>([])
 const form = ref<EntityFormValue>(emptyEntityForm())
 const reason = ref<string>('')
 const saving = ref<boolean>(false)
+
+/* How far the files of this pick have got, which only shows itself once it is large enough to wait for. */
+const {
+  track: trackUpload,
+  reset: resetUpload,
+  visible: uploadVisible,
+  percent: uploadPercent,
+  label: uploadLabel,
+} = useUploadProgress()
 
 /* The stored files of each role that will survive the edit, which starts out as every one of them. */
 const keptFiles = ref<Record<FileRole, Artifact[]>>({ raw: [], parsed: [], parsedAdditional: [] })
@@ -369,21 +387,24 @@ const submit = async (): Promise<void> => {
         ownerId: props.event.id,
         kind: 'raw',
         folder: 'raw_files',
-        descriptor: 'Raw files of the entity',
+        onProgress: trackUpload(),
+      descriptor: 'Raw files of the entity',
       }),
       uploadArtifacts(form.value.parsedFiles, {
         ownerKind: 'entities',
         ownerId: props.event.id,
         kind: 'parsed',
         folder: 'parsed_files',
-        descriptor: 'Parsed files of the entity',
+        onProgress: trackUpload(),
+      descriptor: 'Parsed files of the entity',
       }),
       uploadArtifacts(form.value.parsedAdditionalFiles, {
         ownerKind: 'entities',
         ownerId: props.event.id,
         kind: 'parsed_additional',
         folder: 'parsed_additional_files',
-        descriptor: 'Extra products of the parsing',
+        onProgress: trackUpload(),
+      descriptor: 'Extra products of the parsing',
       }),
     ])
 
@@ -428,6 +449,7 @@ const submit = async (): Promise<void> => {
     reportError(error)
   } finally {
     saving.value = false
+    resetUpload()
   }
 }
 

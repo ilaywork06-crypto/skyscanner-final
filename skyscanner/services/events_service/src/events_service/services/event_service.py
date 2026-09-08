@@ -11,7 +11,7 @@ from math import ceil
 from typing import Any
 
 from skyscanner_common.datetime_utils import ensure_utc, utc_now
-from skyscanner_common.errors import ConflictError, NotFoundError, ValidationError
+from skyscanner_common.errors import NotFoundError, ValidationError
 from skyscanner_common.ids import new_id
 from skyscanner_models.common import UserContext
 from skyscanner_models.enums import FieldScope
@@ -30,6 +30,7 @@ from events_service.services.brief import build_event_brief
 from events_service.services.entity_service import EntityService
 from events_service.services.field_service import FieldService
 from events_service.services.revision_service import RevisionService, event_update_changes
+from events_service.services.platform_service import PlatformService
 from events_service.services.type_service import TypeService
 
 # ----- CLASSES ----- #
@@ -46,6 +47,7 @@ class EventService:
         counter_repository: CounterRepository,
         outbox_repository: OutboxRepository,
         type_service: TypeService,
+        platform_service: PlatformService,
         field_service: FieldService,
         entity_service: EntityService,
         revision_service: RevisionService,
@@ -56,7 +58,8 @@ class EventService:
         :param repository: Persistence of the events.
         :param counter_repository: Source of the running event numbers.
         :param outbox_repository: Persistence of the pending notifications.
-        :param type_service: Resolver of the declared event types and platforms.
+        :param type_service: Resolver of the declared event types.
+        :param platform_service: Resolver of the declared platforms an event may name.
         :param field_service: Owner of the dynamic schema, which the entities of an event are shaped by.
         :param entity_service: Owner of the entities nested inside an event.
         :param revision_service: Owner of the edit history.
@@ -65,6 +68,7 @@ class EventService:
         self._counter_repository = counter_repository
         self._outbox_repository = outbox_repository
         self._type_service = type_service
+        self._platform_service = platform_service
         self._field_service = field_service
         self._entity_service = entity_service
         self._revision_service = revision_service
@@ -123,7 +127,7 @@ class EventService:
         require_unique_artifacts(artifacts=request.additional_files, label="the event")
 
         types = await self._type_service.resolve_event_types(keys=request.event_type_keys)
-        await self._type_service.resolve_platforms(keys=request.platforms, industry=request.industry)
+        await self._platform_service.resolve_platforms(keys=request.platforms, industry=request.industry)
         # The event fields the chosen types ask for are the form, so those are the ones that may be required.
         attributes, flattened = await self._field_service.build_values(
             scope=FieldScope.EVENT,
@@ -193,7 +197,7 @@ class EventService:
         updates.pop("reason", None)
 
         if request.platforms is not None:
-            await self._type_service.resolve_platforms(
+            await self._platform_service.resolve_platforms(
                 keys=request.platforms,
                 industry=request.industry or document.industry,
             )

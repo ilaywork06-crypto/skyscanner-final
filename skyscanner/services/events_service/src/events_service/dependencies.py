@@ -28,6 +28,7 @@ from events_service.repositories.revision_repository import RevisionRepository
 from events_service.repositories.subscription_repository import SubscriptionRepository
 from events_service.repositories.industry_repository import IndustryRepository
 from events_service.repositories.template_repository import TemplateRepository
+from events_service.repositories.platform_repository import PlatformRepository
 from events_service.repositories.type_repository import TypeRepository
 from events_service.services.entity_service import EntityService
 from events_service.services.event_service import EventService
@@ -38,6 +39,8 @@ from events_service.services.revision_service import RevisionService
 from events_service.services.subscription_service import SubscriptionService
 from events_service.services.industry_service import IndustryService
 from events_service.services.template_service import TemplateService
+from events_service.services.platform_service import PlatformService
+from events_service.services.rename_service import RenameService
 from events_service.services.type_service import TypeService
 
 # ----- FUNCTIONS ----- #
@@ -208,24 +211,63 @@ def get_revision_service(repository: RevisionRepositoryDependency) -> RevisionSe
 RevisionServiceDependency = Annotated[RevisionService, Depends(get_revision_service)]
 
 
-def get_field_service(repository: FieldRepositoryDependency) -> FieldService:
+def get_platform_repository(provider: ProviderDependency) -> PlatformRepository:
+    """
+    Build the door to the platforms for one request.
+
+    :param provider: Owner of the shared motor client.
+    :return: The repository of the platforms.
+    """
+    return PlatformRepository(provider=provider)
+
+
+PlatformRepositoryDependency = Annotated[PlatformRepository, Depends(get_platform_repository)]
+
+
+def get_rename_service(provider: ProviderDependency) -> RenameService:
+    """
+    Build the rewriter that carries a changed machine key through every document naming it.
+
+    :param provider: Owner of the shared motor client.
+    :return: The service that owns those rewrites.
+    """
+    return RenameService(provider=provider)
+
+
+RenameServiceDependency = Annotated[RenameService, Depends(get_rename_service)]
+
+
+def get_field_service(repository: FieldRepositoryDependency, renames: RenameServiceDependency) -> FieldService:
     """
     Build the owner of the dynamic schema for one request.
 
     :param repository: Persistence of the field declarations.
+    :param renames: Owner of the rewrites a changed key costs elsewhere in the store.
     :return: The service that owns the dynamic schema.
     """
-    return FieldService(repository=repository)
+    return FieldService(repository=repository, renames=renames)
 
 
-def get_type_service(repository: TypeRepositoryDependency) -> TypeService:
+def get_type_service(repository: TypeRepositoryDependency, renames: RenameServiceDependency) -> TypeService:
     """
     Build the owner of the declared types for one request.
 
     :param repository: Persistence of the type declarations.
+    :param renames: Owner of the rewrites a changed key costs elsewhere in the store.
     :return: The service that owns the declared types.
     """
-    return TypeService(repository=repository)
+    return TypeService(repository=repository, renames=renames)
+
+
+def get_platform_service(repository: PlatformRepositoryDependency, renames: RenameServiceDependency) -> PlatformService:
+    """
+    Build the owner of the declared platforms for one request.
+
+    :param repository: Persistence of the platforms.
+    :param renames: Owner of the rewrites a changed key costs elsewhere in the store.
+    :return: The service that owns the declared platforms.
+    """
+    return PlatformService(repository=repository, renames=renames)
 
 
 def get_industry_service(
@@ -244,6 +286,7 @@ def get_industry_service(
 
 FieldServiceDependency = Annotated[FieldService, Depends(get_field_service)]
 TypeServiceDependency = Annotated[TypeService, Depends(get_type_service)]
+PlatformServiceDependency = Annotated[PlatformService, Depends(get_platform_service)]
 IndustryServiceDependency = Annotated[IndustryService, Depends(get_industry_service)]
 
 
@@ -284,6 +327,7 @@ def get_event_service(
     counter_repository: CounterRepositoryDependency,
     outbox_repository: OutboxRepositoryDependency,
     type_service: TypeServiceDependency,
+    platform_service: PlatformServiceDependency,
     field_service: FieldServiceDependency,
     entity_service: EntityServiceDependency,
     revision_service: RevisionServiceDependency,
@@ -295,6 +339,7 @@ def get_event_service(
     :param counter_repository: Source of the running event numbers.
     :param outbox_repository: Persistence of the pending notifications.
     :param type_service: Resolver of the declared event types.
+    :param platform_service: Resolver of the declared platforms an event may name.
     :param field_service: Owner of the dynamic schema of the events.
     :param entity_service: Owner of the entities nested inside an event.
     :param revision_service: Owner of the edit history.
@@ -305,6 +350,7 @@ def get_event_service(
         counter_repository=counter_repository,
         outbox_repository=outbox_repository,
         type_service=type_service,
+        platform_service=platform_service,
         field_service=field_service,
         entity_service=entity_service,
         revision_service=revision_service,
@@ -316,6 +362,7 @@ def get_grid_service(
     event_repository: EventRepositoryDependency,
     field_service: FieldServiceDependency,
     type_repository: TypeRepositoryDependency,
+    platform_repository: PlatformRepositoryDependency,
     industry_repository: IndustryRepositoryDependency,
 ) -> GridService:
     """
@@ -324,7 +371,8 @@ def get_grid_service(
     :param provider: Owner of the shared motor client, used to inspect the stored documents.
     :param event_repository: Persistence of the events the rows are read from.
     :param field_service: Owner of the declared dynamic schema.
-    :param type_repository: Persistence of the declared types and platforms the filters offer.
+    :param type_repository: Persistence of the declared types the filters offer.
+    :param platform_repository: Persistence of the declared platforms the filters offer.
     :param industry_repository: Persistence of the industries the filters offer.
     :return: The service that generates the tables.
     """
@@ -336,6 +384,7 @@ def get_grid_service(
             base_filter=NOT_DELETED,
         ),
         type_repository=type_repository,
+        platform_repository=platform_repository,
         industry_repository=industry_repository,
     )
 

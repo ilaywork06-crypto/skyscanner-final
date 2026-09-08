@@ -190,6 +190,12 @@
         >
           {{ blockedReason }}
         </span>
+        <!-- A pick large enough to be written part by part is a wait, so it is shown as one. -->
+        <UploadProgress
+          :visible="uploadVisible"
+          :percent="uploadPercent"
+          :label="uploadLabel"
+        />
         <v-spacer />
         <v-btn
           variant="text"
@@ -217,6 +223,8 @@
 
 <script lang="ts">
 import type { Artifact, EventStatus, ExperimentResult, FieldType, JsonValue, OptionalEventField } from '@/models/common'
+import UploadProgress from '@/components/UploadProgress.vue'
+import { UnsavedChangesDialog } from '@truth-platform/core-ui'
 import { UiDropzone as FileDropzone, UiInfoIcon, toDateInput, toIsoDate } from '@truth-platform/core-ui'
 import type { EventDetail } from '@/models/event'
 import type { FieldDefinition } from '@truth-platform/core-ui'
@@ -245,6 +253,7 @@ import MetadataFieldsPanel from '@/components/MetadataFieldsPanel.vue'
 import StoredFilesEditor from '@/components/StoredFilesEditor.vue'
 import { useDirtyGuard } from '@truth-platform/core-ui'
 import { useSnackbar } from '@truth-platform/core-ui'
+import { useUploadProgress } from '@/composables/useUploadProgress'
 import { updateEvent } from '@/requests/events'
 import { listEventTypes, listFields, listPlatforms } from '@/requests/schema'
 import { uploadArtifacts } from '@/requests/storage'
@@ -279,6 +288,15 @@ const keptFiles = ref<Artifact[]>([])
 const newFiles = ref<File[]>([])
 const reason = ref<string>('')
 const saving = ref<boolean>(false)
+
+/* How far the files of this edit have got, which only shows itself once a pick is large enough to wait for. */
+const {
+  track: trackUpload,
+  reset: resetUpload,
+  visible: uploadVisible,
+  percent: uploadPercent,
+  label: uploadLabel,
+} = useUploadProgress()
 
 /* What the dialog was filled with when it opened, which is what an edit is measured against. */
 const openedWith = ref<string>('')
@@ -412,6 +430,7 @@ const submit = async (): Promise<void> => {
       kind: 'additional',
       folder: null,
       descriptor: 'Files added after the event was created',
+      onProgress: trackUpload(),
     })
     const updated = await updateEvent(props.event.id, {
       reason: reason.value.trim(),
@@ -432,6 +451,7 @@ const submit = async (): Promise<void> => {
     reportError(error)
   } finally {
     saving.value = false
+    resetUpload()
   }
 }
 

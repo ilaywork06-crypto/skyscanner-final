@@ -3,12 +3,23 @@
     class="text-cell"
     :class="{ 'text-cell--expandable': isExpandable }"
   >
+    <!--
+      A value short enough to be shown whole has its addresses read out of it, so a link stored in a field is
+      a link in the table. A value the cell had to window is left as characters: what is on screen is a
+      fragment, and half of an address is not one - the viewer behind the affordance shows the whole value
+      and reads the addresses out of that instead.
+    -->
     <span
       class="text-cell__preview"
       @click="openViewer"
     >
+      <UiLinkedText
+        v-if="!isExpandable"
+        :text="display"
+        :term="isMatch ? search : ''"
+      />
       <HighlightedText
-        v-if="isMatch"
+        v-else-if="isMatch"
         :text="display"
         :term="search"
       />
@@ -72,6 +83,7 @@ const LIST_DISPLAY = 'list'
 import { computed, ref } from 'vue'
 
 import HighlightedText from '../../components/HighlightedText.vue'
+import UiLinkedText from '../../components/UiLinkedText.vue'
 import { readContext } from '../../utils/grid-context'
 import { matchesTerm, previewAround } from '../../utils/highlight'
 import { splitNotes, toBulletedText, toNotePreview } from '../../utils/notes'

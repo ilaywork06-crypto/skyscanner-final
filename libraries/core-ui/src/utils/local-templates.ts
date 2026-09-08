@@ -54,12 +54,33 @@ const listLocalTemplates = (scope: FieldScope, industry: string | null): TableTe
     .sort((left, right) => left.name.localeCompare(right.name))
 
 /**
+ * Mint an identifier for a template that never leaves this browser.
+ *
+ * The obvious way to do this is `crypto.randomUUID`, and it is the wrong one twice over. It arrived in
+ * Chrome 92, which is newer than the floor this client is built for; and it is offered only in a secure
+ * context, so on a deployment reached as `http://<machine>:8080` from another desk - which is how this
+ * system is actually opened - it is missing from the newest browser there is. Saving a private view threw
+ * in both cases. It is used where it exists and worked out by hand where it does not, because the only thing
+ * asked of this value is that two templates in one browser never collide.
+ */
+const newLocalId = (): string => {
+  const source = globalThis.crypto
+  if (source !== undefined && typeof source.randomUUID === 'function') {
+    return source.randomUUID()
+  }
+
+  const random = Math.random().toString(36).slice(2, 10)
+
+  return `${Date.now().toString(36)}-${random}`
+}
+
+/**
  * Save one private template in this browser, replacing an earlier template of the same name.
  */
 const createLocalTemplate = (request: TemplateCreateRequest): TableTemplate => {
   const stored: TableTemplate = {
     ...request,
-    id: `${LOCAL_ID_PREFIX}${crypto.randomUUID()}`,
+    id: `${LOCAL_ID_PREFIX}${newLocalId()}`,
     owner: LOCAL_OWNER,
     created_at: new Date().toISOString(),
     updated_at: null,
