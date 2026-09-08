@@ -15,26 +15,6 @@
       </template>
     </RegisterToolbar>
 
-    <!--
-      The listing of an assumption carries neither its values nor its industries, so every row has to be read
-      on its own before the table can filter or colour by either. That takes one request per assumption and
-      there is no endpoint that would make it fewer, so the table is usable while it happens and says so.
-    -->
-    <div
-      v-if="completing"
-      class="register__progress"
-    >
-      <v-progress-linear
-        :model-value="progressPercent"
-        color="primary"
-        height="4"
-        rounded
-      />
-      <span class="register__progress-label">
-        Reading assumption details — {{ progress.completed }} of {{ progress.total }}. Values and industries
-        appear as they arrive.
-      </span>
-    </div>
 
     <QuickFilters
       v-if="quickFilterColumns.length > 0"
@@ -124,11 +104,11 @@ import { exportRows } from '@/utils/export'
 const props = withDefaults(defineProps<Props>(), { industry: null })
 
 const router = useRouter()
-const { assumptions, industries, fields, completing, progress, findIndustry, refreshAssumption } = useRegister()
+const { industries, fields, findIndustry } = useRegister()
 const { notify, reportError } = useSnackbar()
 
 const industry = computed<string | null>(() => props.industry)
-const { controller } = useAssumptionsGrid({ assumptions, fields, industry })
+const { controller } = useAssumptionsGrid({ fields, industry })
 
 const grid = ref<InstanceType<typeof AssumptionsGrid> | null>(null)
 const createOpen = ref<boolean>(false)
@@ -158,14 +138,17 @@ const scope = computed<ScopeFilter | null>(() => {
   return { field: 'Industry', value: findIndustry(props.industry)?.name ?? props.industry }
 })
 
-const progressPercent = computed<number>(() =>
-  progress.value.total === 0 ? 0 : (progress.value.completed / progress.value.total) * 100,
+/*
+ * The table is never handed the register, so it cannot tell an empty register from an empty answer by
+ * looking at what it holds. It asks instead: a narrowed table showing nothing is a search that found
+ * nothing, and only a table narrowed by nothing is looking at a register with nothing in it.
+ */
+const narrowed = computed<boolean>(
+  () => controller.search.value.length > 0 || controller.filterConditions.value.length > 0,
 )
 
 const emptyMessage = computed<string>(() =>
-  assumptions.value.length === 0
-    ? 'No assumptions have been created yet.'
-    : 'No assumptions match what you are looking for.',
+  narrowed.value ? 'No assumptions match what you are looking for.' : 'No assumptions have been created yet.',
 )
 
 const onSearch = async (term: string) => {
@@ -217,12 +200,13 @@ const onOpenRow = (rowId: string) => {
 }
 
 /**
- * Read the assumption that was just created, so that it appears in the table without the page being reloaded.
+ * Show the assumption that was just created, by asking the register again rather than by splicing it in.
+ *
+ * The table shows one window of an answer it did not compute, so where a new assumption belongs in that
+ * answer - or whether it belongs in the window at all - is the register's to say and not this page's.
  */
-const onCreated = async (assumptionId: string) => {
+const onCreated = async () => {
   try {
-    const detail = await refreshAssumption(assumptionId)
-    assumptions.value = [{ ...detail, detail }, ...assumptions.value.filter((row) => row.id !== assumptionId)]
     await controller.refreshRows()
   } catch (error) {
     reportError(error)
@@ -259,17 +243,6 @@ watch(industry, async () => {
   flex-direction: column;
   gap: 1rem;
   min-inline-size: 0;
-}
-
-.register__progress {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-
-.register__progress-label {
-  font-size: 0.8125rem;
-  color: rgb(var(--v-theme-app-muted));
 }
 
 .register__empty {

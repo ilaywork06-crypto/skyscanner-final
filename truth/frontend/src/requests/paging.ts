@@ -1,10 +1,13 @@
 /**
  * Reading a whole collection out of an API that only offers a window onto it.
  *
- * Every listing of this service takes an offset and a limit and answers with a bare array, and none of them
- * says how many rows there are in total. A caller that wants the whole collection - which is every caller
- * here, because the table filters, sorts and pages in the browser - therefore has to ask repeatedly until a
- * page comes back short, which is the only signal the API gives that it has reached the end.
+ * The industries and the schemas are listed with an offset and a limit and answered with a bare array, and
+ * neither listing says how many there are in total, so reading one whole means asking repeatedly until a page
+ * comes back short - the only signal those listings give that they have reached the end.
+ *
+ * The assumptions are not read this way and must not be. They are asked for one window at a time, through
+ * the query endpoint, because there is no size of register at which reading all of them is the right thing
+ * to do. What this reads whole are the two collections bounded by how many people write into them.
  */
 
 /** How many rows one request asks for. Large enough that most collections arrive in one or two rounds. */
@@ -13,8 +16,8 @@ const PAGE_SIZE = 200
 /**
  * A ceiling on the rounds, so that a service which keeps answering full pages cannot spin the client forever.
  *
- * At the page size above this is two hundred thousand rows, which is far past anything the table can render
- * and far past anything this register is expected to hold.
+ * At the page size above this is two hundred thousand rows, which is far past any number of industries or
+ * declarations a register acquires - and those are the only two things read this way.
  */
 const MAX_PAGES = 1000
 

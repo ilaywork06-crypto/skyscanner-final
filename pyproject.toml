@@ -10,11 +10,12 @@ dependencies = [
     "events-service",
     "storage-service",
     "notification-service",
+    "truth-service",
 ]
 
 [tool.uv.workspace]
-members = ["packages/*", "services/*"]
-exclude = ["packages/ag-grid-ts", "packages/sky-ui"]
+members = ["packages/*", "services/*", "truth/backend"]
+exclude = ["packages/ag-grid-ts", "packages/core-ui"]
 
 [tool.uv.sources]
 skyscanner-models = { workspace = true }
@@ -23,6 +24,7 @@ ag-grid-lib = { workspace = true }
 events-service = { workspace = true }
 storage-service = { workspace = true }
 notification-service = { workspace = true }
+truth-service = { workspace = true }
 
 [dependency-groups]
 dev = [

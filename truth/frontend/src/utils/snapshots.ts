@@ -23,6 +23,16 @@ const STORAGE_KEY = 'truth.snapshots'
  */
 const MAX_SNAPSHOTS = 20
 
+/**
+ * How many assumptions one snapshot preserves.
+ *
+ * A snapshot used to hold the whole register, which was possible only while the whole register was something
+ * a browser held. It is not any more, and a few megabytes of storage would not have held it for long anyway.
+ * A snapshot is therefore the newest this many assumptions, and the page says so rather than letting somebody
+ * believe they preserved a register of a hundred thousand rows in a corner of their browser.
+ */
+const SNAPSHOT_ROW_LIMIT = 1000
+
 /** One preserved reading of the register. */
 interface Snapshot {
   id: string
@@ -115,4 +125,12 @@ const deleteSnapshot = (snapshotId: string): void => {
 }
 
 export type { Snapshot, SnapshotSummary }
-export { MAX_SNAPSHOTS, captureSnapshot, deleteSnapshot, listSnapshots, readSnapshot, readSnapshots }
+export {
+  MAX_SNAPSHOTS,
+  SNAPSHOT_ROW_LIMIT,
+  captureSnapshot,
+  deleteSnapshot,
+  listSnapshots,
+  readSnapshot,
+  readSnapshots,
+}

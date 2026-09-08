@@ -1,27 +1,52 @@
-# Truth, running as two containers: the stand-in API and the web client that reads it.
+# Truth, running as three containers: the document store, the register service and the web client.
 #
 # Run it from this directory with `docker compose up --build`. The client is published on every interface
 # of the host, so anybody on the network reaches it at http://<this machine>:8090 - and reaches the API
 # through that same port, because nginx forwards /api on to the service.
+#
+# The register comes up empty. `truth/backend/scripts/seed.py` fills it with as much as you want to try it
+# with, and `docker-compose.mock.yml` beside this one runs the in-memory stand-in instead of the real thing.
 #
 # To serve the client in front of an API that is already running somewhere else, use the frontend-only
 # file beside this one instead: docker-compose.frontend.yml.
 name: truth
 
 services:
-  truth-api:
-    build:
-      context: ..
-      dockerfile: truth/Dockerfile.mock
+  mongo:
+    image: mongo:7
     restart: unless-stopped
-    # The mock holds its register in memory, so restarting it puts the data back the way it started.
-    # It is deliberately not published: the only thing that needs to reach it is the web container.
+    volumes:
+      - truth-mongo-data:/data/db
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/industry?offset=0&limit=1')"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 5s
       timeout: 3s
       retries: 12
-      start_period: 3s
+      start_period: 5s
+    networks:
+      - truth
+
+  truth-api:
+    build:
+      context: ..
+      dockerfile: truth/backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: ${TRUTH_DATABASE:-truth}
+      # nginx strips this before forwarding, so the service never sees it and has to be told: it is what the
+      # documentation page needs to write its own addresses with, and what "try it out" sends against.
+      TRUTH_ROOT_PATH: /api
+    # Deliberately not published: the only thing that needs to reach it is the web container.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      mongo:
+        condition: service_healthy
     networks:
       - truth
 
@@ -53,3 +78,6 @@ services:
 networks:
   truth:
     driver: bridge
+
+volumes:
+  truth-mongo-data:

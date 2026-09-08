@@ -12,7 +12,7 @@ import {
   type ColDef,
 } from 'ag-grid-community'
 
-import { applyThemeCompatibility } from './compatibility'
+import { observeThemeCompatibility } from './compatibility'
 import type { CellRendererRegistry, FilterComponentRegistry } from './parse'
 import { parseColumnDefinitions } from './parse'
 import type { GeneratedGridConfiguration, GridRow } from './types'
@@ -44,17 +44,19 @@ const registerGridModules = () => {
 }
 
 /**
- * Give a browser without the colour function the palette the theme derived, once the theme has been written.
+ * Give a browser without the colour function the palette the theme derived, and keep on giving it.
  *
- * The grid injects its generated stylesheet while it builds itself, so the rewrite is queued behind that
- * rather than run before it. On a browser that understands the function this does nothing at all.
+ * The grid injects its generated stylesheet while it builds itself, so the first rewrite is queued behind
+ * that rather than run before it. What follows is watched instead of assumed: the grid writes that sheet
+ * again whenever the theme it is handed changes, and a rewrite left unanswered is a table that loses its
+ * borders halfway through a session. On a browser that understands the function this does nothing at all.
  */
 const repairInjectedTheme = () => {
   if (typeof window === 'undefined') {
     return
   }
 
-  window.setTimeout(() => applyThemeCompatibility(), 0)
+  window.setTimeout(() => observeThemeCompatibility(), 0)
 }
 
 /**

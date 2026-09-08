@@ -61,14 +61,6 @@
               {{ countOf(industry.name) === 1 ? 'assumption' : 'assumptions' }}
             </span>
           </div>
-          <!--
-            The listing of an assumption does not say which industries it belongs to, so a count is only
-            complete once every assumption has been read on its own.
-          -->
-          <span
-            v-if="completing"
-            class="industries__pending"
-          >counting…</span>
         </v-card>
       </div>
     </div>
@@ -82,30 +74,35 @@
 
 <script setup lang="ts">
 import { UiChip, hashedToken, useSnackbar } from '@truth-platform/core-ui'
-import { computed, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 
 import AppHeader from '@/components/AppHeader.vue'
 import CreateIndustryDialog from '@/components/CreateIndustryDialog.vue'
 import { useRegister } from '@/composables/useRegister'
+import { readIndustriesWithCounts } from '@/requests/industries'
 
-const { industries, assumptions, loading, completing, load } = useRegister()
+const { industries, loading, load } = useRegister()
 const { reportError } = useSnackbar()
 
 const createOpen = ref<boolean>(false)
 
-/**
- * How many assumptions name each industry, counted over the readings that have arrived.
+/*
+ * How many assumptions name each industry, counted by the service in one pass over the register.
+ *
+ * This used to be counted here, over the assumptions the client had read - which made the number climb while
+ * the page was open and settle on the truth only once the last reading had landed. It is asked for now, and
+ * it is asked for separately from the industries themselves because counting is the expensive half.
  */
-const counts = computed<Record<string, number>>(() => {
-  const collected: Record<string, number> = {}
-  assumptions.value.forEach((row) => {
-    row.detail?.industries.forEach((industry) => {
-      collected[industry.name] = (collected[industry.name] ?? 0) + 1
-    })
-  })
+const counts = ref<Record<string, number>>({})
 
-  return collected
-})
+const loadCounts = async () => {
+  try {
+    const counted = await readIndustriesWithCounts()
+    counts.value = Object.fromEntries(counted.map((industry) => [industry.name, industry.assumption_count ?? 0]))
+  } catch (error) {
+    reportError(error)
+  }
+}
 
 const countOf = (name: string): number => counts.value[name] ?? 0
 
@@ -115,10 +112,15 @@ const countOf = (name: string): number => counts.value[name] ?? 0
 const onCreated = async () => {
   try {
     await load(true)
+    await loadCounts()
   } catch (error) {
     reportError(error)
   }
 }
+
+onMounted(() => {
+  void loadCounts()
+})
 </script>
 
 <style scoped>

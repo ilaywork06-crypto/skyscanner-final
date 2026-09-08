@@ -226,12 +226,12 @@ const STEP_LABELS: string[] = ['Default Data', 'Schema Fields']
 
 <script setup lang="ts">
 import { ENTER_TO_ADD_HINT, UiInfoIcon, useSnackbar } from '@truth-platform/core-ui'
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 
 import SchemeFieldsForm from '@/components/SchemeFieldsForm.vue'
 import { useRegister } from '@/composables/useRegister'
 import type { SchemeField } from '@/models/scheme'
-import { createAssumption } from '@/requests/assumptions'
+import { createAssumption, readFacet } from '@/requests/assumptions'
 import { validateValues } from '@/utils/constraints'
 import { readCreator } from '@/utils/identity'
 import { mergeFields, readScheme } from '@/utils/scheme'
@@ -239,7 +239,7 @@ import { mergeFields, readScheme } from '@/utils/scheme'
 const props = withDefaults(defineProps<Props>(), { duplicatedFrom: null })
 const emit = defineEmits<Emits>()
 
-const { industries, schemas, assumptions, readSchemaDetail } = useRegister()
+const { industries, schemas, readSchemaDetail } = useRegister()
 const { notify, reportError } = useSnackbar()
 
 const step = ref<number>(0)
@@ -264,22 +264,46 @@ const schemaOptions = computed<{ title: string; value: string }[]>(() =>
   schemas.value.map((schema) => ({ title: `${schema.name} (rev ${schema.revision})`, value: schema.id })),
 )
 
-/**
- * Read one column of the register as the vocabulary a free text field offers to pick from.
+/*
+ * The vocabulary the three free text fields suggest from.
  *
  * Nothing in this API declares who may propose an assumption or what it may be tagged with, so the register
- * itself is what the suggestions come from - which keeps a second spelling of the same party from creeping in.
+ * itself is what the suggestions come from - which keeps a second spelling of the same party from creeping
+ * in. It is asked of the register rather than gathered from rows held here, because no rows are held here:
+ * a suggestion list built out of whatever page a table happened to be showing would offer a different
+ * vocabulary depending on where the reader had paged to.
  */
-const knownValues = (read: (row: (typeof assumptions.value)[number]) => string[]): string[] => {
-  const seen = new Set<string>()
-  assumptions.value.forEach((row) => read(row).forEach((value) => value.length > 0 && seen.add(value)))
+const knownParties = ref<string[]>([])
+const knownTags = ref<string[]>([])
+const knownValidators = ref<string[]>([])
 
-  return [...seen].sort((left, right) => left.localeCompare(right))
+/**
+ * Ask the register what each of those three columns is known to hold.
+ *
+ * A vocabulary that cannot be read costs its field nothing but its suggestions - the field is free text, so
+ * it is still perfectly usable typed out in full.
+ */
+const loadVocabularies = async () => {
+  const columns: [string, typeof knownParties][] = [
+    ['proposing_party', knownParties],
+    ['tags', knownTags],
+    ['validation_responsible_parties', knownValidators],
+  ]
+
+  await Promise.all(
+    columns.map(async ([key, held]) => {
+      try {
+        held.value = (await readFacet(key, null)).values
+      } catch {
+        held.value = []
+      }
+    }),
+  )
 }
 
-const knownParties = computed<string[]>(() => knownValues((row) => [row.proposing_party]))
-const knownTags = computed<string[]>(() => knownValues((row) => row.tags))
-const knownValidators = computed<string[]>(() => knownValues((row) => row.validation_responsible_parties))
+onMounted(() => {
+  void loadVocabularies()
+})
 
 const fields = computed<SchemeField[]>(() => pickedFields.value)
 

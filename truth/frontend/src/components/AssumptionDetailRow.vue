@@ -12,117 +12,98 @@
       </div>
 
       <template v-else>
-        <!--
-          The reading of an assumption is a request of its own and lands after the row it belongs to, so a panel
-          opened early says what it is waiting for instead of showing an assumption with no values.
-        -->
-        <div
-          v-if="row.complete !== true"
-          class="detail-row__loading"
-        >
-          <v-progress-circular
-            indeterminate
-            size="20"
-            width="2"
-            color="primary"
-          />
-          <span>Reading this assumption…</span>
-        </div>
-
-        <template v-else>
-          <section class="detail-row__section">
-            <header class="detail-row__heading">
-              <h3 class="detail-row__title">
-                Industry details
-              </h3>
-              <UiChip
-                v-for="industry in industryNames"
-                :key="industry"
-                :label="industry"
-                :token="taxonomyToken(industry, taxonomy)"
-              />
-              <span
-                v-if="industryNames.length === 0"
-                class="detail-row__muted"
-              >
-                This assumption is not filed under any industry.
-              </span>
-            </header>
-
-            <AttributesTable
-              v-if="valueColumns.length > 0"
-              :columns="valueColumns"
-              :row="row"
-              :taxonomy="taxonomy"
+        <section class="detail-row__section">
+          <header class="detail-row__heading">
+            <h3 class="detail-row__title">
+              Industry details
+            </h3>
+            <UiChip
+              v-for="industry in industryNames"
+              :key="industry"
+              :label="industry"
+              :token="taxonomyToken(industry, taxonomy)"
             />
-            <p
-              v-else
+            <span
+              v-if="industryNames.length === 0"
               class="detail-row__muted"
             >
-              The schemas of this assumption declare no attributes.
-            </p>
-          </section>
+              This assumption is not filed under any industry.
+            </span>
+          </header>
 
-          <section class="detail-row__section">
-            <header class="detail-row__heading">
-              <h3 class="detail-row__title">
-                Validation
-              </h3>
-            </header>
+          <AttributesTable
+            v-if="valueColumns.length > 0"
+            :columns="valueColumns"
+            :row="row"
+            :taxonomy="taxonomy"
+          />
+          <p
+            v-else
+            class="detail-row__muted"
+          >
+            The schemas of this assumption declare no attributes.
+          </p>
+        </section>
 
-            <!--
+        <section class="detail-row__section">
+          <header class="detail-row__heading">
+            <h3 class="detail-row__title">
+              Validation
+            </h3>
+          </header>
+
+          <!--
               The API records who is responsible for validating an assumption but stores no validations
               themselves, so this is what the register actually knows about the validation of a row.
             -->
-            <div class="detail-row__facts">
+          <div class="detail-row__facts">
+            <div
+              v-for="fact in validationFacts"
+              :key="fact.label"
+              class="detail-row__fact"
+            >
+              <span class="detail-row__label">{{ fact.label }}</span>
               <div
-                v-for="fact in validationFacts"
-                :key="fact.label"
-                class="detail-row__fact"
+                v-if="fact.values.length > 0"
+                class="detail-row__values"
               >
-                <span class="detail-row__label">{{ fact.label }}</span>
-                <div
-                  v-if="fact.values.length > 0"
-                  class="detail-row__values"
-                >
-                  <UiChip
-                    v-for="value in fact.values"
-                    :key="value"
-                    :label="value"
-                    :token="fact.token ?? taxonomyToken(value, taxonomy)"
-                  />
-                </div>
-                <span
-                  v-else-if="fact.text.length > 0"
-                  class="detail-row__text"
-                >{{ fact.text }}</span>
-                <span
-                  v-else
-                  class="detail-row__muted"
-                >{{ EMPTY_PLACEHOLDER }}</span>
+                <UiChip
+                  v-for="value in fact.values"
+                  :key="value"
+                  :label="value"
+                  :token="fact.token ?? taxonomyToken(value, taxonomy)"
+                />
               </div>
+              <span
+                v-else-if="fact.text.length > 0"
+                class="detail-row__text"
+              >{{ fact.text }}</span>
+              <span
+                v-else
+                class="detail-row__muted"
+              >{{ EMPTY_PLACEHOLDER }}</span>
             </div>
-          </section>
-
-          <div class="detail-row__actions">
-            <v-btn
-              variant="text"
-              size="small"
-              prepend-icon="mdi-open-in-new"
-              @click="open"
-            >
-              Open assumption
-            </v-btn>
-            <v-btn
-              variant="text"
-              size="small"
-              prepend-icon="mdi-chevron-up"
-              @click="collapse"
-            >
-              Collapse
-            </v-btn>
           </div>
-        </template>
+        </section>
+
+        <div class="detail-row__actions">
+          <v-btn
+            variant="text"
+            size="small"
+            prepend-icon="mdi-open-in-new"
+            @click="open"
+          >
+            Open assumption
+          </v-btn>
+          <v-btn
+            variant="text"
+            size="small"
+            prepend-icon="mdi-chevron-up"
+            @click="collapse"
+          >
+            Collapse
+          </v-btn>
+        </div>
       </template>
     </div>
   </div>
@@ -322,13 +303,6 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.detail-row__loading {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  color: rgb(var(--v-theme-app-muted));
-  font-size: 0.875rem;
-}
 
 .detail-row__empty,
 .detail-row__muted {

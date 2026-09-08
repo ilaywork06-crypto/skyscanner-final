@@ -413,8 +413,25 @@ Without it the field still takes a point - it just takes it as three typed numbe
 
 The table library derives most of its palette at run time with `color-mix()`, which reached Chrome in version
 111; on anything older every derived border, hover and header separator is dropped as invalid. The generated
-stylesheet is therefore rewritten once on browsers without it, by `packages/ag-grid-ts/src/compatibility.ts`,
-and the bundler targets the floor named in `frontend/vite.config.ts` rather than inheriting a recent baseline.
+stylesheet is therefore rewritten on browsers without it, by `packages/ag-grid-ts/src/compatibility.ts`, and
+the bundler targets the floor named in `frontend/vite.config.ts` rather than inheriting a recent baseline.
+
+Almost none of those mixes name a colour outright. The grid writes them over its own custom properties -
+`color-mix(in srgb, transparent, var(--ag-active-color) 12%)` is the shape nearly all of them take - so the
+properties are read out of the same stylesheets first and an operand naming one is expanded before the mix
+over it is worked out. Of the thirty seven distinct mixes the shipped stylesheets contain, thirty seven
+resolve; reading only literal colours resolved sixteen, and left every border and every hover on the floor.
+
+The channels are weighted by their own alpha before being mixed and divided back out afterwards, because that
+is how the function being replaced is defined. Skipping it turns a hover written over `transparent` into a
+dark smear rather than a tint - and a hover written over `transparent` is what nearly all of them are.
+
+The rewrite is not a single sweep. The grid writes that stylesheet again whenever the theme it is handed
+changes, and the sheet it writes has its mixes unresolved, so switching between dark and light would have
+taken the borders back off the table until the page was reloaded. The injected sheets are watched instead,
+and every rewrite the grid makes is answered - the watch exists only on the browsers that need it, sees the
+head alone rather than the thousands of mutations a table redraw makes, and drops the records of its own
+writing so that it does not answer itself.
 
 ---
 

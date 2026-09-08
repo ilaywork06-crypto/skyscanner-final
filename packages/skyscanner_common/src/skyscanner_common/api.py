@@ -75,7 +75,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         app.add_exception_handler(error_type, handler)
 
 
-def create_application(title: str, version: str, description: str, api_prefix: str = "") -> FastAPI:
+def create_application(
+    title: str,
+    version: str,
+    description: str,
+    api_prefix: str = "",
+    root_path: str = "",
+) -> FastAPI:
     """
     Build a FastAPI application that already carries the shared CORS policy and error handling.
 
@@ -83,16 +89,24 @@ def create_application(title: str, version: str, description: str, api_prefix: s
     service. Left at the root it would answer only inside the container, because the gateway hands the
     service the whole path it received and nothing outside the prefix ever reaches it.
 
+    A gateway that strips its prefix instead of passing it through needs the other one. The service is then
+    reached at a path it never sees, so its own routes are right and every address it writes into the
+    documentation page is wrong by exactly that prefix - the page loads and then asks for a description of
+    the service at an address the gateway routes somewhere else entirely. The root path is what the service
+    is told about that, and it is the only thing it can be told: the request itself no longer carries it.
+
     :param title: Name the service is documented under.
     :param version: Version the service is documented under.
     :param description: One sentence describing what the service does.
     :param api_prefix: Path the reverse proxy forwards to the service, empty when it is reached directly.
+    :param root_path: Path the service is reached at from outside, when the proxy strips it before forwarding.
     :return: The prepared application.
     """
     application = FastAPI(
         title=title,
         version=version,
         description=description,
+        root_path=root_path,
         docs_url=f"{api_prefix}/docs",
         redoc_url=f"{api_prefix}/redoc",
         openapi_url=f"{api_prefix}/openapi.json",
