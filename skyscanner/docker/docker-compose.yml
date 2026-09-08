@@ -46,7 +46,7 @@ services:
 
   events-service:
     build:
-      context: ..
+      context: ../..
       dockerfile: skyscanner/services/events_service/Dockerfile
     restart: unless-stopped
     environment:
@@ -65,7 +65,7 @@ services:
 
   storage-service:
     build:
-      context: ..
+      context: ../..
       dockerfile: skyscanner/services/storage_service/Dockerfile
     restart: unless-stopped
     environment:
@@ -94,7 +94,7 @@ services:
 
   notification-service:
     build:
-      context: ..
+      context: ../..
       dockerfile: skyscanner/services/notification_service/Dockerfile
     restart: unless-stopped
     environment:
@@ -120,7 +120,7 @@ services:
 
   web:
     build:
-      context: ..
+      context: ../..
       dockerfile: skyscanner/frontend/Dockerfile
       args:
         VITE_API_BASE_URL: /api

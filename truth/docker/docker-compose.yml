@@ -28,7 +28,7 @@ services:
 
   truth-api:
     build:
-      context: ..
+      context: ../..
       dockerfile: truth/backend/Dockerfile
     restart: unless-stopped
     environment:
@@ -52,7 +52,7 @@ services:
 
   web:
     build:
-      context: ..
+      context: ../..
       dockerfile: truth/frontend/Dockerfile
       args:
         VITE_API_BASE_URL: /api

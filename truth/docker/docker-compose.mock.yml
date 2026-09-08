@@ -10,7 +10,7 @@ name: truth-mock
 services:
   truth-api:
     build:
-      context: ..
+      context: ../..
       dockerfile: truth/Dockerfile.mock
     restart: unless-stopped
     healthcheck:
@@ -24,7 +24,7 @@ services:
 
   web:
     build:
-      context: ..
+      context: ../..
       dockerfile: truth/frontend/Dockerfile
       args:
         VITE_API_BASE_URL: /api

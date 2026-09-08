@@ -21,12 +21,12 @@ libraries/                 built by both, owned by neither
 skyscanner/                the inventory
 ├── services/              events, storage, notifications
 ├── frontend/              the client
-└── docker-compose.yml     every service, the document store, the bucket and the mail relay
+└── docker/                every service, the document store, the bucket and the mail relay
 
 truth/                     the register
 ├── backend/               the register service
 ├── frontend/              the client
-└── docker-compose.yml     the store, the service and the client
+└── docker/                the store, the service and the client, and the two narrower setups
 ```
 
 The two libraries named for Skyscanner are shared with Truth and no longer named for what they hold. Renaming
@@ -36,8 +36,8 @@ this is the note saying so rather than a reader having to work it out from the i
 ## Running either one
 
 ```bash
-cd skyscanner && docker compose up --build     # http://localhost:8080
-cd truth      && docker compose up --build     # http://localhost:8090
+cd skyscanner/docker && docker compose up --build     # http://localhost:8080
+cd truth/docker      && docker compose up --build     # http://localhost:8090
 ```
 
 Each brings up its own store and is independent of the other. Their own READMEs cover configuration, seeding

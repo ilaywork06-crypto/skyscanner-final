@@ -8,7 +8,7 @@ truth/
 ├── backend/          the FastAPI service and the document store behind it
 ├── frontend/         the Vue 3 web client
 ├── mock-api.py       an in-memory stand-in for the service, for working on the client alone
-└── docker-compose.yml
+└── docker/           the whole thing, the stand-in setup, and the client on its own
 ```
 
 The shared components both this client and the Skyscanner one render with live in `libraries/` at the root of
@@ -19,7 +19,7 @@ the repository, not here.
 ### Everything, for anybody on the network
 
 ```bash
-cd truth
+cd truth/docker
 docker compose up --build
 ```
 
@@ -37,6 +37,8 @@ inside the service - the store is not published, so the only thing that can reac
 ```bash
 docker compose exec truth-api python /app/truth/backend/scripts/seed.py --count 100000
 ```
+
+(from `truth/docker`, like every other compose command here)
 
 Outside Docker, where the store is reachable directly, the same script runs on the host:
 `uv run python truth/backend/scripts/seed.py --count 100000`.

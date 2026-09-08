@@ -13,7 +13,7 @@ repository and sharing them with Truth. Everything runs behind one nginx contain
 
 ```
 skyscanner/
-├── docker-compose.yml            every service, the document store, the bucket and the mail relay
+├── docker/                       every service, the document store, the bucket and the mail relay
 ├── services/
 │   ├── events_service/           the inventory, the entities, the dynamic schema, the templates, the exports
 │   ├── storage_service/          uploads, downloads and temporary links for every stored file
@@ -42,12 +42,12 @@ talks to the document store, and only the storage service talks to the bucket.
 ## Running the whole thing
 
 ```bash
-cd skyscanner
+cd skyscanner/docker
 docker compose up --build
 ```
 
-Every value has a default, so there is nothing to configure to start it. An `.env` beside the compose file
-overrides any of them.
+Every value has a default, so there is nothing to configure to start it. An `.env` in that directory,
+beside the compose file, overrides any of them.
 
 | What | Where |
 | --- | --- |

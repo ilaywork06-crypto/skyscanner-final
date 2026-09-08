@@ -12,7 +12,7 @@ name: truth-frontend
 services:
   web:
     build:
-      context: ..
+      context: ../..
       dockerfile: truth/frontend/Dockerfile
       args:
         VITE_API_BASE_URL: /api
