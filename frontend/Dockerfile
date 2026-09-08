@@ -4,13 +4,14 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY packages/ag-grid-ts/package.json ./packages/ag-grid-ts/package.json
-COPY packages/sky-ui/package.json ./packages/sky-ui/package.json
+COPY packages/core-ui/package.json ./packages/core-ui/package.json
+COPY truth/frontend/package.json ./truth/frontend/package.json
 COPY frontend/package.json ./frontend/package.json
 
 RUN npm ci
 
 COPY packages/ag-grid-ts ./packages/ag-grid-ts
-COPY packages/sky-ui ./packages/sky-ui
+COPY packages/core-ui ./packages/core-ui
 COPY frontend ./frontend
 
 ARG VITE_API_BASE_URL=/api
@@ -23,7 +24,7 @@ ENV VITE_MAP_TILE_URL=$VITE_MAP_TILE_URL
 ARG VITE_MAP_ATTRIBUTION=
 ENV VITE_MAP_ATTRIBUTION=$VITE_MAP_ATTRIBUTION
 
-RUN npm run build --workspace frontend
+RUN npm run build --workspace skyscanner-frontend
 
 
 FROM nginx:1.27-alpine

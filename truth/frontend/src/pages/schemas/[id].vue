@@ -104,10 +104,11 @@
             <thead>
               <tr>
                 <th>Key</th>
-                <th>Label</th>
+                <th>Display name</th>
                 <th>Type</th>
                 <th>Required</th>
-                <th>Options</th>
+                <th>Many</th>
+                <th>Allowed</th>
               </tr>
             </thead>
             <tbody>
@@ -116,10 +117,11 @@
                 :key="field.key"
               >
                 <td><code>{{ field.key }}</code></td>
-                <td>{{ field.label }}</td>
-                <td>{{ field.type }}{{ field.array ? '[]' : '' }}</td>
+                <td>{{ field.displayName }}</td>
+                <td><code>{{ field.type }}</code></td>
                 <td>{{ field.required ? 'Yes' : 'No' }}</td>
-                <td>{{ field.options.join(', ') || EMPTY_PLACEHOLDER }}</td>
+                <td>{{ field.array ? 'Yes' : 'No' }}</td>
+                <td>{{ allowedOf(field) }}</td>
               </tr>
             </tbody>
           </v-table>
@@ -129,36 +131,6 @@
           >
             This schema declares no attributes.
           </p>
-        </v-card>
-
-        <v-card
-          v-if="scheme.constraints.length > 0"
-          class="schema__card"
-        >
-          <h2 class="schema__section">
-            Constraints
-          </h2>
-          <v-table density="compact">
-            <thead>
-              <tr>
-                <th>Attribute</th>
-                <th>Rule</th>
-                <th>Value</th>
-                <th>Message</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(constraint, index) in scheme.constraints"
-                :key="index"
-              >
-                <td><code>{{ constraint.field || EMPTY_PLACEHOLDER }}</code></td>
-                <td>{{ constraint.rule }}</td>
-                <td>{{ renderValue(constraint.value) }}</td>
-                <td>{{ constraint.message ?? EMPTY_PLACEHOLDER }}</td>
-              </tr>
-            </tbody>
-          </v-table>
         </v-card>
       </template>
     </div>
@@ -172,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { EMPTY_PLACEHOLDER, UiChip, formatDateTime, hashedToken, type JsonValue } from '@truth-platform/core-ui'
+import { EMPTY_PLACEHOLDER, UiChip, formatDateTime, hashedToken } from '@truth-platform/core-ui'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -180,7 +152,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import CreateSchemaDialog from '@/components/CreateSchemaDialog.vue'
 import { useRegister } from '@/composables/useRegister'
 import type { SchemaDetail } from '@/models/schema'
-import type { Scheme } from '@/models/scheme'
+import type { Scheme, SchemeField } from '@/models/scheme'
 import { readLatestSchema } from '@/requests/schemas'
 import { readScheme } from '@/utils/scheme'
 
@@ -214,14 +186,25 @@ const loadSchema = async (): Promise<void> => {
 watch(schemaId, () => void loadSchema(), { immediate: true })
 
 /**
- * Render the value of a constraint as the text this page shows for it.
+ * Say what one attribute may hold - the vocabulary of an enumeration, or the bounds of a number.
  */
-const renderValue = (value: JsonValue): string => {
-  if (value === null) {
-    return EMPTY_PLACEHOLDER
+const allowedOf = (field: SchemeField): string => {
+  if (field.type === 'enum') {
+    return field.options.join(', ') || EMPTY_PLACEHOLDER
   }
 
-  return Array.isArray(value) ? value.map((item) => String(item)).join(', ') : String(value)
+  const said: string[] = []
+  if (field.min !== null) {
+    said.push(`min ${field.min}`)
+  }
+  if (field.max !== null) {
+    said.push(`max ${field.max}`)
+  }
+  if (field.step !== null) {
+    said.push(`step ${field.step}`)
+  }
+
+  return said.join(', ') || EMPTY_PLACEHOLDER
 }
 
 /**

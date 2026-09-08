@@ -12,6 +12,7 @@ import type { FieldType, GeneratedColumn, GeneratedGridConfiguration } from '@tr
 import { humanizeKey } from '@truth-platform/core-ui'
 
 import type { SchemeField } from '@/models/scheme'
+import { renderType } from '@/utils/scheme'
 
 /** Where a schema declared value sits inside the flattened row. */
 const VALUE_PREFIX = 'values'
@@ -230,21 +231,23 @@ const fixedColumns = (): GeneratedColumn[] => [
 /**
  * Describe one schema declared attribute as the column that renders it.
  */
-const fieldColumn = (field: SchemeField): GeneratedColumn =>
-  toColumn({
+const fieldColumn = (field: SchemeField): GeneratedColumn => {
+  const rendered = renderType(field.type)
+
+  return toColumn({
     colId: field.key,
     field: `${VALUE_PREFIX}.${field.key}`,
-    headerName: field.label.length > 0 ? field.label : humanizeKey(field.key),
-    type: field.type,
-    flex: field.type === 'text' || field.type === 'json' ? 2 : 1,
+    headerName: field.displayName.length > 0 ? field.displayName : humanizeKey(field.key),
+    type: rendered,
+    flex: 1,
     minWidth: 140,
-    renderer: field.array ? 'ChipListCellRenderer' : TYPE_RENDERERS[field.type],
-    filter: field.array || field.type === 'enum' ? 'SetColumnFilter' : TYPE_FILTERS[field.type],
-    params: { withTime: field.type === 'datetime', unit: field.unit },
+    renderer: field.array ? 'ChipListCellRenderer' : TYPE_RENDERERS[rendered],
+    filter: field.array || rendered === 'enum' ? 'SetColumnFilter' : TYPE_FILTERS[rendered],
     autoHeight: field.array,
-    quickFilter: field.type === 'enum' && !field.array,
+    quickFilter: rendered === 'enum' && !field.array,
     dynamic: true,
   })
+}
 
 /**
  * Build the whole configuration of the register's table out of the attributes the schemas declare.

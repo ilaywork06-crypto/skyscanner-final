@@ -1,0 +1,55 @@
+# Truth, running as two containers: the stand-in API and the web client that reads it.
+#
+# Run it from this directory with `docker compose up --build`. The client is published on every interface
+# of the host, so anybody on the network reaches it at http://<this machine>:8090 - and reaches the API
+# through that same port, because nginx forwards /api on to the service.
+#
+# To serve the client in front of an API that is already running somewhere else, use the frontend-only
+# file beside this one instead: docker-compose.frontend.yml.
+name: truth
+
+services:
+  truth-api:
+    build:
+      context: ..
+      dockerfile: truth/Dockerfile.mock
+    restart: unless-stopped
+    # The mock holds its register in memory, so restarting it puts the data back the way it started.
+    # It is deliberately not published: the only thing that needs to reach it is the web container.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/industry?offset=0&limit=1')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+    networks:
+      - truth
+
+  web:
+    build:
+      context: ..
+      dockerfile: truth/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+        # Who the client creates things as until somebody sets a name of their own in the interface.
+        VITE_DEFAULT_CREATOR: ${TRUTH_DEFAULT_CREATOR:-}
+    restart: unless-stopped
+    environment:
+      # The mock alongside it. Everything about pointing this image somewhere else is this one address,
+      # and the trailing slash is what strips the /api prefix off on the way through.
+      TRUTH_API_URL: http://truth-api:8000/
+    ports:
+      # Bound to every interface on purpose - that is what puts it in front of the network rather than
+      # only this machine. Set TRUTH_PORT to move it, or 127.0.0.1:8090:80 to keep it to this machine.
+      - "${TRUTH_PORT:-8090}:80"
+    depends_on:
+      # nginx waits until the API is actually answering rather than merely existing, so that the very
+      # first page load has something behind it.
+      truth-api:
+        condition: service_healthy
+    networks:
+      - truth
+
+networks:
+  truth:
+    driver: bridge

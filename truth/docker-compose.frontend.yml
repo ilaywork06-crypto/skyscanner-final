@@ -1,0 +1,31 @@
+# Truth's web client on its own, in front of an API that is already running somewhere else.
+#
+# The image holds nothing but the built page and an nginx that forwards /api on, so the only thing to say
+# is where that API is:
+#
+#   TRUTH_API_URL=http://10.0.0.7:8000/ docker compose -f docker-compose.frontend.yml up --build
+#
+# The trailing slash matters. It is what strips the /api the client prefixes, so that /api/assumption
+# arrives at the service as /assumption.
+name: truth-frontend
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: truth/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_DEFAULT_CREATOR: ${TRUTH_DEFAULT_CREATOR:-}
+    restart: unless-stopped
+    environment:
+      # Where the assumptions API answers, as this container can reach it. `host.docker.internal` reaches
+      # a service running on this machine outside Docker; a name or an address reaches one anywhere else.
+      TRUTH_API_URL: ${TRUTH_API_URL:-http://host.docker.internal:8000/}
+    extra_hosts:
+      # Linux does not resolve that name by itself, so it is pointed at the host explicitly.
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Bound to every interface on purpose - that is what puts it in front of the network rather than
+      # only this machine. Set TRUTH_PORT to move it, or 127.0.0.1:8090:80 to keep it to this machine.
+      - "${TRUTH_PORT:-8090}:80"

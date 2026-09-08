@@ -2,6 +2,7 @@
  * The build configuration of the web client, wiring the file based router, Vuetify and the API proxy.
  */
 
+import { hostname } from 'node:os'
 import { fileURLToPath, URL } from 'node:url'
 
 import vue from '@vitejs/plugin-vue'
@@ -20,6 +21,33 @@ const NOTIFICATION_SERVICE_TARGET = process.env.NOTIFICATION_SERVICE_URL ?? 'htt
  */
 const BROWSER_TARGETS: string[] = ['chrome90', 'edge90', 'firefox90', 'safari15']
 
+/*
+ * Which names a browser may ask for this server by.
+ *
+ * The dev server refuses a request whose Host header is a name it was not told about, which is what stops a
+ * page on the internet from resolving its own domain to this machine and reading the source through the
+ * visitor's browser. An address is never a name, so reaching the server by IP has always worked; it is
+ * opening it as `http://<machine>:5173` from another desk that gets turned away.
+ *
+ * The machine's own name is therefore allowed by default, which covers everybody on the network who reaches
+ * it the obvious way. SKYSCANNER_ALLOWED_HOSTS names any others - a short name, a domain, or `.example.com` for every name
+ * under one - and `all` gives up the protection entirely, which is only sensible on a network you trust.
+ */
+const readAllowedHosts = (): string[] | true => {
+  const named = (process.env.SKYSCANNER_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter((host) => host.length > 0)
+
+  if (named.includes('all')) {
+    return true
+  }
+
+  const own = hostname()
+
+  return [...new Set([...named, own, `${own}.local`, 'localhost'])]
+}
+
 export default defineConfig({
   plugins: [
     VueRouter({ routesFolder: 'src/pages', dts: 'src/typed-router.d.ts' }),
@@ -36,6 +64,7 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    allowedHosts: readAllowedHosts(),
     proxy: {
       '/api/storage': { target: STORAGE_SERVICE_TARGET, changeOrigin: true },
       '/api/notifications': { target: NOTIFICATION_SERVICE_TARGET, changeOrigin: true },

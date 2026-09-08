@@ -1,17 +1,21 @@
 /**
- * Checking a filled in assumption against the restrictions its schemas declare, before it is sent.
+ * Checking a filled in assumption against what its schemas declare, before it is sent.
  *
  * The service enforces its own rules and has the last word; this is here so that a mistake is caught while
  * the form is still open and beside the field that caused it, rather than coming back as one sentence about
  * a form that has already been dismissed.
+ *
+ * What is checked comes from the fields themselves rather than from a separate list of constraints: whether
+ * a field is required, what an enumeration may be chosen from, and what a confined number is bounded by.
  */
 
 import type { JsonValue } from '@truth-platform/core-ui'
 
-import type { SchemeConstraint, SchemeField } from '@/models/scheme'
+import type { SchemeField } from '@/models/scheme'
+import { isNumeric } from '@/utils/scheme'
 
-/** What a value has to fail before it is called empty, which is the same test the create form uses. */
-const isFilled = (value: JsonValue): boolean => {
+/** What a value has to fail before it is called empty. */
+const isFilled = (value: JsonValue | undefined): boolean => {
   if (value === null || value === undefined) {
     return false
   }
@@ -28,129 +32,98 @@ const isFilled = (value: JsonValue): boolean => {
 }
 
 /**
- * Render one value as the text a length or a pattern is measured against.
- */
-const asText = (value: JsonValue): string => (typeof value === 'string' ? value : JSON.stringify(value) ?? '')
-
-/**
- * Read the number a comparison is made against, or nothing when either side is not a number.
+ * Read one value as the number it is meant to be, or nothing when it does not read as one at all.
  */
 const asNumber = (value: JsonValue): number | null => {
-  const parsed = typeof value === 'number' ? value : Number(asText(value))
+  const parsed = typeof value === 'number' ? value : Number(String(value))
 
   return Number.isNaN(parsed) ? null : parsed
 }
 
 /**
- * Test one value against one restriction, answering the complaint or nothing at all.
+ * Say what is wrong with one value of a confined number, or nothing when it is inside its bounds.
  *
- * A restriction whose rule nobody here recognises never complains: the service knows what it means and this
- * client does not, so refusing to send the form over it would be refusing on a guess.
+ * The increment is checked against the lower bound where there is one, so a field stepping by 5 from 10
+ * accepts 15 rather than only multiples of 5.
  */
-const checkConstraint = (constraint: SchemeConstraint, value: JsonValue, label: string): string | null => {
-  const stated = constraint.message
-
-  switch (constraint.rule) {
-    case 'required':
-      return isFilled(value) ? null : stated ?? `${label} is required`
-    case 'min': {
-      const bound = asNumber(constraint.value)
-      const number = asNumber(value)
-
-      return bound === null || number === null || number >= bound ? null : stated ?? `${label} must be at least ${bound}`
-    }
-    case 'max': {
-      const bound = asNumber(constraint.value)
-      const number = asNumber(value)
-
-      return bound === null || number === null || number <= bound ? null : stated ?? `${label} must be at most ${bound}`
-    }
-    case 'min_length': {
-      const bound = asNumber(constraint.value)
-
-      return bound === null || !isFilled(value) || asText(value).length >= bound
-        ? null
-        : stated ?? `${label} must be at least ${bound} characters`
-    }
-    case 'max_length': {
-      const bound = asNumber(constraint.value)
-
-      return bound === null || !isFilled(value) || asText(value).length <= bound
-        ? null
-        : stated ?? `${label} must be at most ${bound} characters`
-    }
-    case 'pattern': {
-      if (!isFilled(value) || typeof constraint.value !== 'string') {
-        return null
-      }
-
-      /*
-       * The pattern was written by whoever declared the schema, so it may well not compile here - a Python
-       * flavour that JavaScript does not share, or simply a typo. A pattern that cannot be read lets the
-       * value through rather than failing every value it is put against.
-       */
-      try {
-        return new RegExp(constraint.value).test(asText(value)) ? null : stated ?? `${label} is not in the expected format`
-      } catch {
-        return null
-      }
-    }
-    case 'one_of': {
-      if (!isFilled(value)) {
-        return null
-      }
-      const allowed = Array.isArray(constraint.value) ? constraint.value.map((item) => asText(item)) : []
-      if (allowed.length === 0) {
-        return null
-      }
-      const given = Array.isArray(value) ? value.map((item) => asText(item)) : [asText(value)]
-
-      return given.every((item) => allowed.includes(item))
-        ? null
-        : stated ?? `${label} must be one of: ${allowed.join(', ')}`
-    }
-    default:
-      return null
+const checkNumber = (field: SchemeField, value: JsonValue): string | null => {
+  const number = asNumber(value)
+  if (number === null) {
+    return `${field.displayName} must be a number`
   }
+
+  if (field.type === 'confined_number' && !Number.isInteger(number)) {
+    return `${field.displayName} must be a whole number`
+  }
+
+  if (field.min !== null && number < field.min) {
+    return `${field.displayName} must be at least ${field.min}`
+  }
+
+  if (field.max !== null && number > field.max) {
+    return `${field.displayName} must be at most ${field.max}`
+  }
+
+  if (field.step !== null && field.step > 0) {
+    const from = field.min ?? 0
+    const steps = (number - from) / field.step
+    /*
+     * A decimal step never divides exactly in binary floating point - 0.1 three times is not 0.3 - so the
+     * remainder is compared against a tolerance rather than against zero.
+     */
+    if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+      return `${field.displayName} must go up in steps of ${field.step}${field.min === null ? '' : ` from ${field.min}`}`
+    }
+  }
+
+  return null
 }
 
 /**
- * Check a whole set of filled in values against the fields and the restrictions declared over them.
+ * Say what is wrong with the value held under one field, or nothing when there is nothing wrong with it.
+ */
+const checkField = (field: SchemeField, value: JsonValue | undefined): string | null => {
+  if (!isFilled(value)) {
+    return field.required ? `${field.displayName} is required` : null
+  }
+
+  const held = value as JsonValue
+  /* A field holding several values is right only if every one of them is. */
+  const values: JsonValue[] = field.array && Array.isArray(held) ? held : [held]
+
+  for (const single of values) {
+    if (field.type === 'enum' && field.options.length > 0 && !field.options.includes(String(single))) {
+      return `${field.displayName} must be one of: ${field.options.join(', ')}`
+    }
+
+    if (isNumeric(field.type)) {
+      const complaint = checkNumber(field, single)
+      if (complaint !== null) {
+        return complaint
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Check a whole set of filled in values against the fields declared over them.
  *
  * The answer is keyed by field, so each complaint can be shown under the input that caused it. A field is
  * only ever given its first complaint, because a reader fixes them one at a time anyway.
  */
-const validateValues = (
-  fields: SchemeField[],
-  constraints: SchemeConstraint[],
-  values: Record<string, JsonValue>,
-): Record<string, string> => {
+const validateValues = (fields: SchemeField[], values: Record<string, JsonValue>): Record<string, string> => {
   const problems: Record<string, string> = {}
 
   fields.forEach((field) => {
-    if (field.required && !isFilled(values[field.key] ?? null)) {
-      problems[field.key] = `${field.label} is required`
-    }
-  })
-
-  constraints.forEach((constraint) => {
-    if (constraint.field.length === 0 || problems[constraint.field] !== undefined) {
-      return
-    }
-
-    const field = fields.find((candidate) => candidate.key === constraint.field)
-    const complaint = checkConstraint(
-      constraint,
-      values[constraint.field] ?? null,
-      field?.label ?? constraint.field,
-    )
-
+    const complaint = checkField(field, values[field.key])
     if (complaint !== null) {
-      problems[constraint.field] = complaint
+      problems[field.key] = complaint
     }
   })
 
   return problems
 }
 
-export { asNumber, asText, checkConstraint, isFilled, validateValues }
+export { asNumber, checkField, checkNumber, isFilled, validateValues }

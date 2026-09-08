@@ -1,26 +1,25 @@
 /**
  * Reading and writing the free form dictionaries a schema declares its attributes as.
  *
- * The API types a scheme's fields and constraints as `list[dict[str, JsonValue]]`, so the service will store
- * whatever it is handed and hand back whatever was stored. Nothing may therefore be assumed about the keys of
- * a stored field beyond what can be recognised. Reading is deliberately generous - a field written as `name`,
- * as `key` or as `field` is the same field - while writing is strict, so that a schema built in this client
- * reads back exactly as it was declared.
+ * Reading is deliberately generous - a field named `key`, `name` or `field` is the same field, and a display
+ * name written as `label` or `title` is still a display name - because the service stores whatever it is
+ * handed and a schema may have been written by a script or by hand. Writing is strict: a field goes out
+ * carrying the five keys every field must have and the extra ones its own type calls for, and nothing else.
  */
 
 import type { FieldType, JsonValue } from '@truth-platform/core-ui'
 import { humanizeKey } from '@truth-platform/core-ui'
 
-import type { ConstraintRule, Scheme, SchemeConstraint, SchemeField, StoredScheme } from '@/models/scheme'
+import type { Scheme, SchemeField, SchemeFieldType, StoredScheme } from '@/models/scheme'
 
 /** The keys a stored field may name its own key with, in the order they are believed. */
 const KEY_ALIASES: string[] = ['key', 'name', 'field', 'field_name', 'id']
 
-/** The keys a stored field may name its label with. A field with none of these is labelled from its key. */
-const LABEL_ALIASES: string[] = ['label', 'title', 'display_name', 'display', 'caption']
+/** The keys a stored field may carry its display name under. */
+const NAME_ALIASES: string[] = ['display_name', 'displayName', 'label', 'title', 'display', 'caption']
 
 /** The keys a stored field may name its type with. */
-const TYPE_ALIASES: string[] = ['type', 'field_type', 'data_type', 'kind', 'format']
+const TYPE_ALIASES: string[] = ['type', 'field_type', 'data_type', 'kind']
 
 /** The keys a stored field may offer its vocabulary under. */
 const OPTION_ALIASES: string[] = ['options', 'choices', 'enum', 'values', 'allowed', 'allowed_values']
@@ -31,45 +30,58 @@ const REQUIRED_ALIASES: string[] = ['required', 'mandatory', 'is_required']
 /** The keys a stored field may mark itself as holding several values with. */
 const ARRAY_ALIASES: string[] = ['array', 'multiple', 'is_list', 'many', 'repeated']
 
-/** The keys a stored field may carry its description under. */
-const DESCRIPTION_ALIASES: string[] = ['description', 'help', 'hint', 'doc', 'comment']
-
 /** What each spelling of a type read off a stored field is understood as. */
-const TYPE_BY_NAME: Record<string, FieldType> = {
-  str: 'string',
+const TYPE_BY_NAME: Record<string, SchemeFieldType> = {
   string: 'string',
-  text: 'text',
-  textarea: 'text',
-  longtext: 'text',
-  int: 'integer',
-  integer: 'integer',
-  number: 'number',
-  float: 'number',
-  double: 'number',
-  decimal: 'number',
-  bool: 'boolean',
+  str: 'string',
+  text: 'string',
   boolean: 'boolean',
-  checkbox: 'boolean',
-  date: 'date',
-  datetime: 'datetime',
-  timestamp: 'datetime',
+  bool: 'boolean',
+  confined_number: 'confined_number',
+  'confined number': 'confined_number',
+  number: 'confined_number',
+  int: 'confined_number',
+  integer: 'confined_number',
+  confined_float: 'confined_float',
+  'confined float': 'confined_float',
+  float: 'confined_float',
+  double: 'confined_float',
+  decimal: 'confined_float',
   enum: 'enum',
   select: 'enum',
   choice: 'enum',
-  json: 'json',
-  object: 'json',
-  dict: 'json',
-  map: 'json',
-  coordinate: 'coordinate',
-  geo: 'coordinate',
-  location: 'coordinate',
+  date: 'date',
+  datetime: 'date',
 }
 
-/** What a field whose type is unreadable is treated as, which is the type that renders anything. */
-const FALLBACK_TYPE: FieldType = 'string'
+/** What a field whose type cannot be read is treated as, which is the type that holds anything. */
+const FALLBACK_TYPE: SchemeFieldType = 'string'
 
 /** The spellings of a list type, which say how many values a field holds rather than what kind they are. */
 const ARRAY_TYPE_NAMES: string[] = ['list', 'array', 'set', 'tuple', 'sequence']
+
+/** How each kind of attribute is rendered, which is the vocabulary the table and the forms are built in. */
+const RENDER_TYPES: Record<SchemeFieldType, FieldType> = {
+  string: 'string',
+  boolean: 'boolean',
+  confined_number: 'integer',
+  confined_float: 'number',
+  enum: 'enum',
+  date: 'date',
+}
+
+/** Which kinds carry bounds and an increment, and are typed as numbers wherever one is entered. */
+const NUMERIC_TYPES: SchemeFieldType[] = ['confined_number', 'confined_float']
+
+/**
+ * How one kind of attribute is rendered - the type the columns and the form inputs are chosen by.
+ */
+const renderType = (type: SchemeFieldType): FieldType => RENDER_TYPES[type] ?? 'string'
+
+/**
+ * Whether a kind of attribute is entered as a number, which decides how a typed value is stored.
+ */
+const isNumeric = (type: SchemeFieldType): boolean => NUMERIC_TYPES.includes(type)
 
 /**
  * Read one string out of a stored dictionary, trying each alias in turn.
@@ -106,6 +118,24 @@ const readFlag = (raw: Record<string, JsonValue>, aliases: string[]): boolean =>
 }
 
 /**
+ * Read one number out of a stored dictionary, or nothing where none was written.
+ */
+const readNumber = (raw: Record<string, JsonValue>, key: string): number | null => {
+  const value = raw[key]
+  if (typeof value === 'number') {
+    return value
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value)
+
+    return Number.isNaN(parsed) ? null : parsed
+  }
+
+  return null
+}
+
+/**
  * Read the vocabulary of an enumerated field, whichever key it was offered under.
  */
 const readOptions = (raw: Record<string, JsonValue>): string[] => {
@@ -122,29 +152,27 @@ const readOptions = (raw: Record<string, JsonValue>): string[] => {
 /**
  * Work out what kind of value a field holds and whether it holds one of them or several.
  *
- * A type is often written as a list of something - `list[str]`, `string[]`, `array of number` - which says
- * two separate things at once, so both are read out of it rather than the whole spelling being given up on.
+ * A type is often written as a list of something - `list[str]`, `string[]` - which says two separate things
+ * at once, so both are read out of it rather than the whole spelling being given up on.
  */
-const readType = (raw: Record<string, JsonValue>): { type: FieldType; array: boolean } => {
+const readType = (raw: Record<string, JsonValue>): { type: SchemeFieldType; array: boolean } => {
   const written = readString(raw, TYPE_ALIASES)
   const declaredArray = readFlag(raw, ARRAY_ALIASES)
 
   if (written === null) {
     /* A field with a vocabulary and no stated type is an enumeration, whatever else it forgot to say. */
-    const type: FieldType = readOptions(raw).length > 0 ? 'enum' : FALLBACK_TYPE
-
-    return { type, array: declaredArray }
+    return { type: readOptions(raw).length > 0 ? 'enum' : FALLBACK_TYPE, array: declaredArray }
   }
 
   const lowered = written.toLowerCase().trim()
-  const inner = /^(?:list|array|set|tuple|sequence)\s*(?:\[|<|\bof\b)\s*([a-z_]+)/.exec(lowered)
+  const inner = /^(?:list|array|set|tuple|sequence)\s*(?:\[|<|\bof\b)\s*([a-z_ ]+)/.exec(lowered)
   if (inner !== null) {
-    return { type: TYPE_BY_NAME[inner[1]] ?? FALLBACK_TYPE, array: true }
+    return { type: TYPE_BY_NAME[inner[1].trim()] ?? FALLBACK_TYPE, array: true }
   }
 
-  const suffixed = /^([a-z_]+)\s*\[\s*\]$/.exec(lowered)
+  const suffixed = /^([a-z_ ]+?)\s*\[\s*\]$/.exec(lowered)
   if (suffixed !== null) {
-    return { type: TYPE_BY_NAME[suffixed[1]] ?? FALLBACK_TYPE, array: true }
+    return { type: TYPE_BY_NAME[suffixed[1].trim()] ?? FALLBACK_TYPE, array: true }
   }
 
   if (ARRAY_TYPE_NAMES.includes(lowered)) {
@@ -152,6 +180,31 @@ const readType = (raw: Record<string, JsonValue>): { type: FieldType; array: boo
   }
 
   return { type: TYPE_BY_NAME[lowered] ?? FALLBACK_TYPE, array: declaredArray }
+}
+
+/**
+ * Assemble one field descriptor out of what was recognised in the dictionary it was stored as.
+ */
+const buildField = (input: {
+  key: string
+  displayName: string
+  raw: Record<string, JsonValue>
+  order: number
+}): SchemeField => {
+  const { type, array } = readType(input.raw)
+
+  return {
+    key: input.key,
+    displayName: input.displayName,
+    type,
+    array,
+    required: readFlag(input.raw, REQUIRED_ALIASES),
+    options: type === 'enum' ? readOptions(input.raw) : [],
+    min: isNumeric(type) ? readNumber(input.raw, 'min') : null,
+    max: isNumeric(type) ? readNumber(input.raw, 'max') : null,
+    step: isNumeric(type) ? readNumber(input.raw, 'step') : null,
+    order: input.order,
+  }
 }
 
 /**
@@ -168,160 +221,71 @@ const readField = (raw: Record<string, JsonValue>, order: number): SchemeField |
   if (named === null && entries.length === 1 && typeof entries[0][1] === 'string') {
     const [key, written] = entries[0]
 
-    return buildField({ key, label: humanizeKey(key), raw: { type: written }, order })
+    return buildField({ key, displayName: humanizeKey(key), raw: { type: written }, order })
   }
 
   if (named === null) {
     return null
   }
 
-  return buildField({ key: named, label: readString(raw, LABEL_ALIASES) ?? humanizeKey(named), raw, order })
-}
-
-/**
- * Assemble one field descriptor out of what was recognised in the dictionary it was stored as.
- */
-const buildField = (input: {
-  key: string
-  label: string
-  raw: Record<string, JsonValue>
-  order: number
-}): SchemeField => {
-  const { type, array } = readType(input.raw)
-
-  return {
-    key: input.key,
-    label: input.label,
-    type,
-    array,
-    required: readFlag(input.raw, REQUIRED_ALIASES),
-    default: input.raw.default ?? null,
-    options: readOptions(input.raw),
-    description: readString(input.raw, DESCRIPTION_ALIASES),
-    unit: readString(input.raw, ['unit', 'units', 'measure']),
-    placeholder: readString(input.raw, ['placeholder', 'example']),
-    group: readString(input.raw, ['group', 'section', 'category']),
-    order: input.order,
-  }
-}
-
-/** What each spelling of a restriction is understood as. */
-const RULE_BY_NAME: Record<string, ConstraintRule> = {
-  required: 'required',
-  mandatory: 'required',
-  min: 'min',
-  minimum: 'min',
-  gte: 'min',
-  max: 'max',
-  maximum: 'max',
-  lte: 'max',
-  min_length: 'min_length',
-  minlength: 'min_length',
-  max_length: 'max_length',
-  maxlength: 'max_length',
-  pattern: 'pattern',
-  regex: 'pattern',
-  matches: 'pattern',
-  one_of: 'one_of',
-  oneof: 'one_of',
-  in: 'one_of',
-  enum: 'one_of',
-}
-
-/**
- * Read one stored restriction.
- *
- * A restriction is written either as a dictionary naming its rule - `{"field": "speed", "rule": "min",
- * "value": 0}` - or as the rule itself keyed by the field, which is the shorter way anybody writes one by
- * hand. Both are read; anything else is kept whole and enforced by the service rather than here.
- */
-const readConstraint = (raw: Record<string, JsonValue>): SchemeConstraint => {
-  const field = readString(raw, ['field', 'key', 'name', 'target']) ?? ''
-  const written = readString(raw, ['rule', 'constraint', 'type', 'operator', 'kind'])
-  const message = readString(raw, ['message', 'error', 'detail'])
-
-  if (written !== null) {
-    return {
-      field,
-      rule: RULE_BY_NAME[written.toLowerCase()] ?? 'unknown',
-      value: raw.value ?? raw.values ?? null,
-      message,
-      raw,
-    }
-  }
-
-  /* Nothing named a rule, so the rule is whichever recognised word the dictionary is keyed by. */
-  for (const [key, value] of Object.entries(raw)) {
-    const rule = RULE_BY_NAME[key.toLowerCase()]
-    if (rule !== undefined) {
-      return { field, rule, value, message, raw }
-    }
-  }
-
-  return { field, rule: 'unknown', value: null, message, raw }
+  return buildField({ key: named, displayName: readString(raw, NAME_ALIASES) ?? humanizeKey(named), raw, order })
 }
 
 /**
  * Read a whole stored scheme into the descriptors the forms and the columns are built from.
- *
- * Both spellings of the constraint list are accepted, because the service takes one on the way in and gives
- * the other back on the way out.
  */
-const readScheme = (stored: StoredScheme | null | undefined): Scheme => {
-  const fields = (stored?.fields ?? [])
+const readScheme = (stored: StoredScheme | null | undefined): Scheme => ({
+  fields: (stored?.fields ?? [])
     .filter((raw): raw is Record<string, JsonValue> => raw !== null && typeof raw === 'object' && !Array.isArray(raw))
     .map((raw, index) => readField(raw, index))
-    .filter((field): field is SchemeField => field !== null)
+    .filter((field): field is SchemeField => field !== null),
+})
 
-  const constraints = (stored?.constraints ?? stored?.constrains ?? [])
-    .filter((raw): raw is Record<string, JsonValue> => raw !== null && typeof raw === 'object' && !Array.isArray(raw))
-    .map((raw) => readConstraint(raw))
+/**
+ * Write one field into the dictionary the service stores it as.
+ *
+ * The five keys every field must carry are always written, the flags included: a field the user left
+ * unticked is `false` rather than absent, because a missing flag is not the same thing as a false one and
+ * the service reads it as neither. Past those, a field carries only what its own type calls for.
+ */
+const writeField = (field: SchemeField): Record<string, JsonValue> => {
+  const raw: Record<string, JsonValue> = {
+    key: field.key.trim(),
+    display_name: field.displayName.trim(),
+    type: field.type,
+    required: field.required,
+    array: field.array,
+  }
 
-  return { fields, constraints }
+  if (field.type === 'enum') {
+    raw.options = [...field.options]
+  }
+
+  if (isNumeric(field.type)) {
+    /* The bounds and the increment are each optional, so only the ones actually set are written. */
+    if (field.min !== null) {
+      raw.min = field.min
+    }
+    if (field.max !== null) {
+      raw.max = field.max
+    }
+    if (field.step !== null) {
+      raw.step = field.step
+    }
+  }
+
+  return raw
 }
 
 /**
  * Write a scheme back into the shape the service stores it in.
  *
- * Only what a field actually says is written, so a schema of three plain attributes does not read back as
- * three dictionaries of a dozen nulls. The constraint list is written under the spelling the service reads on
- * the way in, which is not the spelling it answers with.
+ * The constraint list goes out empty under the spelling the service reads on the way in - which is not the
+ * spelling it answers with - because the service does not support constraints yet.
  */
 const writeScheme = (scheme: Scheme): StoredScheme => ({
-  fields: scheme.fields.map((field) => {
-    const raw: Record<string, JsonValue> = {
-      key: field.key,
-      label: field.label,
-      type: field.type,
-    }
-    if (field.array) {
-      raw.array = true
-    }
-    if (field.required) {
-      raw.required = true
-    }
-    if (field.options.length > 0) {
-      raw.options = field.options
-    }
-    if (field.default !== null) {
-      raw.default = field.default
-    }
-    if (field.description !== null) {
-      raw.description = field.description
-    }
-    if (field.unit !== null) {
-      raw.unit = field.unit
-    }
-    if (field.placeholder !== null) {
-      raw.placeholder = field.placeholder
-    }
-    if (field.group !== null) {
-      raw.group = field.group
-    }
-
-    return raw
-  }),
-  constrains: scheme.constraints.map((constraint) => constraint.raw),
+  fields: scheme.fields.map((field) => writeField(field)),
+  constrains: [],
 })
 
 /**
@@ -346,4 +310,4 @@ const mergeFields = (schemes: Scheme[]): SchemeField[] => {
   return merged
 }
 
-export { mergeFields, readConstraint, readField, readScheme, readType, writeScheme }
+export { isNumeric, mergeFields, readField, readScheme, readType, renderType, writeField, writeScheme }

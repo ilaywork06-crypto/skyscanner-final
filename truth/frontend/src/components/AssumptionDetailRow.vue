@@ -159,9 +159,14 @@ import {
 } from '@truth-platform/core-ui'
 import { computed, onBeforeUnmount, onMounted, ref, toRef } from 'vue'
 
+import { useRegister } from '@/composables/useRegister'
+
 const props = defineProps<Props>()
 
 const content = ref<HTMLElement | null>(null)
+
+/* The declarations are already held for the whole register, so the panel reads them rather than fetching. */
+const { schemeOf } = useRegister()
 
 const context = computed<AssumptionGridContext>(() => readContext(props.params) as AssumptionGridContext)
 const parentId = computed<string>(() => String(props.params.data?.parentId ?? ''))
@@ -181,10 +186,24 @@ const industryNames = computed<string[]>(() => {
 /**
  * The columns of the panel, which are exactly the schema declared ones of the table.
  *
- * The panel exists to show what a row could not fit, so it shows the attributes the schemas declare rather
- * than repeating the fixed columns that were already legible in the row above it.
+ * The panel exists to show what a row could not fit, so it leaves out the fixed columns that were already
+ * legible in the row above it. It also leaves out the attributes of every other schema in the register - an
+ * assumption is not declared by those, so laying them out here would fill the panel with a row of dashes
+ * for questions nobody asked of it.
  */
-const valueColumns = computed<GeneratedColumn[]>(() => context.value.columns.filter((column) => column.dynamic))
+const declaredKeys = computed<Set<string>>(() => {
+  const ids = row.value?.schema_ids
+
+  if (!Array.isArray(ids)) {
+    return new Set()
+  }
+
+  return new Set(ids.flatMap((id) => schemeOf(String(id)).fields.map((field) => field.key)))
+})
+
+const valueColumns = computed<GeneratedColumn[]>(() =>
+  context.value.columns.filter((column) => column.dynamic && declaredKeys.value.has(column.colId)),
+)
 
 const readList = (key: string): string[] => {
   const value = row.value?.[key]

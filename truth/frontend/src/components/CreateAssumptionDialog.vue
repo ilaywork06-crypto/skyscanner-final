@@ -230,7 +230,7 @@ import { computed, ref, shallowRef, watch } from 'vue'
 
 import SchemeFieldsForm from '@/components/SchemeFieldsForm.vue'
 import { useRegister } from '@/composables/useRegister'
-import type { SchemeConstraint, SchemeField } from '@/models/scheme'
+import type { SchemeField } from '@/models/scheme'
 import { createAssumption } from '@/requests/assumptions'
 import { validateValues } from '@/utils/constraints'
 import { readCreator } from '@/utils/identity'
@@ -258,7 +258,6 @@ const problems = ref<Record<string, string>>({})
 
 /* The declarations of the picked schemas, read on demand and kept for as long as the dialog is open. */
 const pickedFields = shallowRef<SchemeField[]>([])
-const pickedConstraints = shallowRef<SchemeConstraint[]>([])
 
 const industryOptions = computed<string[]>(() => industries.value.map((industry) => industry.name))
 const schemaOptions = computed<{ title: string; value: string }[]>(() =>
@@ -296,7 +295,6 @@ const canCreate = computed<boolean>(() => firstStepComplete.value && schemaIds.v
 const loadSchemes = async (ids: string[]): Promise<void> => {
   if (ids.length === 0) {
     pickedFields.value = []
-    pickedConstraints.value = []
 
     return
   }
@@ -304,9 +302,7 @@ const loadSchemes = async (ids: string[]): Promise<void> => {
   loadingSchemes.value = true
   try {
     const details = await Promise.all(ids.map((id) => readSchemaDetail(id)))
-    const schemes = details.map((detail) => readScheme(detail.scheme))
-    pickedFields.value = mergeFields(schemes)
-    pickedConstraints.value = schemes.flatMap((scheme) => scheme.constraints)
+    pickedFields.value = mergeFields(details.map((detail) => readScheme(detail.scheme)))
   } catch (error) {
     reportError(error)
   } finally {
@@ -370,7 +366,7 @@ const close = () => {
  * Store the assumption, once what was filled in satisfies the restrictions its schemas declare.
  */
 const create = async () => {
-  problems.value = validateValues(fields.value, pickedConstraints.value, values.value)
+  problems.value = validateValues(fields.value, values.value)
   if (Object.keys(problems.value).length > 0) {
     return
   }

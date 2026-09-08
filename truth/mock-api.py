@@ -9,7 +9,7 @@ The data lives in memory, so restarting it puts the register back the way it sta
 
     python3 truth/mock-api.py        # serves on http://localhost:8000
 """
-import json, re, uuid
+import json, os, re, uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -132,6 +132,12 @@ class H(BaseHTTPRequestHandler):
                 "archived": False, "deleted": False, "industries": inds})
         self._send({"id": new_id}, 201)
 
+# Which address the mock answers on. It stays on the loopback by default, because a mock left listening on
+# every interface is a service somebody can reach without meaning to. In a container there is nothing to
+# reach it from except the network it was put on, so the image sets this to every interface.
+HOST = os.environ.get("MOCK_API_HOST", "127.0.0.1")
+PORT = int(os.environ.get("MOCK_API_PORT", "8000"))
+
 if __name__ == "__main__":
-    print("The mock assumptions API is listening on http://localhost:8000")
-    HTTPServer(("127.0.0.1", 8000), H).serve_forever()
+    print(f"The mock assumptions API is listening on http://{HOST}:{PORT}", flush=True)
+    HTTPServer((HOST, PORT), H).serve_forever()

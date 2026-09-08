@@ -1,0 +1,14 @@
+# The stand-in API, which is one file of the Python standard library and needs nothing installed.
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+COPY truth/mock-api.py ./mock-api.py
+
+# Inside a container the only way to the mock is the network it was put on, so it answers on all of them.
+ENV MOCK_API_HOST=0.0.0.0
+ENV MOCK_API_PORT=8000
+
+EXPOSE 8000
+
+CMD ["python3", "-u", "mock-api.py"]

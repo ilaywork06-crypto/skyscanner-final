@@ -75,19 +75,24 @@ const replaceRow = (assumptionId: string, change: (row: AssumptionRow) => Assump
  * Read every declaration once, so that a schema named by several assumptions is fetched a single time.
  */
 const loadSchemaDetails = async (summaries: SchemaSummary[]): Promise<void> => {
-  const details = new Map<string, SchemaDetail>()
-
-  await Promise.all(
-    summaries.map(async (summary) => {
+  /*
+   * The declarations are read at the same time but stored in the order they were listed in, not the order
+   * they happened to answer in. The columns of the table are built by walking this, so storing them as they
+   * landed gave the table a different arrangement on every load - which is not something a reader should
+   * have to notice.
+   */
+  const read = await Promise.all(
+    summaries.map(async (summary): Promise<[string, SchemaDetail] | null> => {
       try {
-        details.set(summary.id, await readLatestSchema(summary.id))
+        return [summary.id, await readLatestSchema(summary.id)]
       } catch {
         /* A declaration that cannot be read costs its own columns and nothing else, so the rest still loads. */
+        return null
       }
     }),
   )
 
-  schemaDetails.value = details
+  schemaDetails.value = new Map(read.filter((entry): entry is [string, SchemaDetail] => entry !== null))
 }
 
 /**

@@ -129,7 +129,7 @@
               :key="field.key"
               class="assumption__fact"
             >
-              <span class="assumption__label">{{ field.label }}</span>
+              <span class="assumption__label">{{ field.displayName }}</span>
               <span class="assumption__value">{{ renderValue(detail.values[field.key]) }}</span>
             </div>
           </div>

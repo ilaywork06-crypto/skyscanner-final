@@ -7,18 +7,71 @@ This directory holds the web client only. The API it reads is the FastAPI servic
 
 ## Running it
 
+### Everything, for anybody on the network
+
 ```bash
-npm install                 # from the repository root
-npm run dev:truth           # http://localhost:5174
+cd truth
+docker compose up --build
 ```
 
-The client proxies `/api` to `http://localhost:8000`, which `TRUTH_API_URL` overrides.
+Two containers: the stand-in API, and nginx serving the built client and forwarding `/api` on to it. The
+client is published on **port 8090 of every interface**, so anybody on the network opens
+`http://<this machine>:8090` and reaches both through that one port - there is no second address to hand
+out and no cross-origin request to allow. The API itself is deliberately not published.
+
+`TRUTH_PORT` moves the port; `TRUTH_DEFAULT_CREATOR` sets who the client creates things as. To keep it to
+this machine, publish it as `127.0.0.1:8090:80` instead.
+
+The mock holds its register in memory, so `docker compose restart truth-api` puts the data back as it started.
+
+### The client on its own, in front of a real API
+
+```bash
+TRUTH_API_URL=http://10.0.0.7:8000/ docker compose -f docker-compose.frontend.yml up --build
+```
+
+One container: the built page and an nginx that forwards `/api` on to wherever you point it. The address is
+read when the container starts, so the same image serves any deployment - there is nothing to rebuild.
+
+**The trailing slash matters.** It is what strips the `/api` the client prefixes, so `/api/assumption`
+arrives at the service as `/assumption`.
+
+`TRUTH_API_URL` defaults to `http://host.docker.internal:8000/`, which reaches a service running on this
+machine outside Docker. For that to work the service has to listen on more than the loopback, or the
+container's request is refused before it arrives:
+
+```bash
+MOCK_API_HOST=0.0.0.0 python3 truth/mock-api.py
+```
+
+### Without Docker, for developing
+
+```bash
+npm install                 # from the repository root
+python3 truth/mock-api.py   # the stand-in API on http://localhost:8000
+npm run dev:truth           # http://localhost:5174
+```
 
 | Variable | What it is for |
 | --- | --- |
 | `TRUTH_API_URL` | Where the assumptions API is reached, at build and dev time. |
+| `TRUTH_ALLOWED_HOSTS` | Extra names the dev server may be reached by. See below. |
 | `VITE_API_BASE_URL` | The address the browser sends its own requests to. Defaults to `/api`. |
 | `VITE_DEFAULT_CREATOR` | Who the client creates things as before anybody sets a name. |
+
+**Reaching the dev server by name.** It refuses a request whose `Host` is a name it was not told about -
+that is what stops a page on the internet from pointing its own domain at your machine and reading the
+source through a visitor's browser. An address is never a name, so `http://10.0.0.5:5174` always works; it
+is `http://moon:5174` that gets turned away with *"This host is not allowed"*. The machine's own hostname is
+allowed for you, so colleagues typing the obvious name get in. Name any others they use:
+
+```bash
+TRUTH_ALLOWED_HOSTS=moon,truth.lan npm run dev:truth
+TRUTH_ALLOWED_HOSTS=.example.com  npm run dev:truth   # every name under a domain
+TRUTH_ALLOWED_HOSTS=all           npm run dev:truth   # any name at all
+```
+
+The Docker setups have none of this to configure: nginx serves the built files and does not check the host.
 
 ## What the API offers, and what follows from it
 
@@ -48,9 +101,38 @@ listing and gain their values and industries as the readings land, with the prog
 table. There is no endpoint that would make this fewer requests.
 
 **A scheme is `list[dict[str, JsonValue]]`.** The service stores whatever it is handed and promises nothing
-about the keys. `utils/scheme.ts` reads generously - a field named `key`, `name` or `field` is the same field,
-`list[str]` and `string[]` both mean a list of text, and a schema written as `{"berth_count": "int"}` is
-understood - and writes strictly, so a schema built here reads back exactly as it was declared.
+about the keys, so `utils/scheme.ts` reads generously and writes strictly.
+
+Reading accepts what a script or a person might plausibly have written: a field named `key`, `name` or
+`field`; a display name written as `display_name`, `label` or `title`; `list[str]` and `string[]` alike; and
+a whole field written as `{"berth_count": "int"}`.
+
+Writing goes out in exactly the shape the service expects. Every field carries these five, the flags always
+present - a box the user left unticked is written `false`, never left out:
+
+| | |
+| --- | --- |
+| `key` | what the value is stored under |
+| `display_name` | what a person reads |
+| `type` | one of the kinds below |
+| `required` | `true` or `false` |
+| `array` | `true` or `false` |
+
+and then only what its own kind calls for:
+
+| `type` | Also carries |
+| --- | --- |
+| `string` | — |
+| `boolean` | — |
+| `confined_number` | `min`, `max`, `step` — each optional, whole numbers |
+| `confined_float` | `min`, `max`, `step` — each optional |
+| `enum` | `options: list[str]` |
+| `date` | — |
+
+Those bounds are what the create form enforces before it sends: a required field, a value outside its
+`min`/`max`, one off its `step`, or one that is not in an enumeration's `options` is caught beside the
+input that caused it. The scheme's constraint list is always written empty, under the `constrains` spelling
+the service reads, because the service does not support constraints yet.
 
 ### Columns are generated from the database, not written down
 
@@ -63,7 +145,7 @@ gives the table a new column, with the renderer and the filter its declared type
 ### Two quirks of the API the client works around
 
 - `POST /schema` reads its constraints under `constrains`; every read hands them back under `constraints`.
-  Both are accepted on the way in and the former is what is sent - see `models/scheme.ts`.
+  Both are accepted on the way in and the former is what is sent, always empty - see `models/scheme.ts`.
 - `POST /schema` takes its industries as numeric identifiers that no endpoint hands out. An empty list is
   sent, which leaves a schema reaching across every industry, and the dialog says so rather than leaving it
   as a silent omission.

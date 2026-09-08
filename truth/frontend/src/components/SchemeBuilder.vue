@@ -1,69 +1,52 @@
 <template>
   <div class="builder">
-    <section class="builder__section">
-      <div class="builder__section-head">
-        <h3 class="builder__title">
-          Attributes
-        </h3>
-        <v-btn
-          variant="tonal"
-          size="small"
-          prepend-icon="mdi-plus"
-          @click="addField"
-        >
-          Add attribute
-        </v-btn>
-      </div>
-
-      <p
-        v-if="scheme.fields.length === 0"
-        class="builder__empty"
+    <div class="builder__head">
+      <h3 class="builder__title">
+        Attributes
+      </h3>
+      <v-btn
+        variant="tonal"
+        size="small"
+        prepend-icon="mdi-plus"
+        @click="addField"
       >
-        A schema declares the attributes an assumption carries. Add the first one.
-      </p>
+        Add attribute
+      </v-btn>
+    </div>
 
-      <div
-        v-for="(field, index) in scheme.fields"
-        :key="index"
-        class="builder__field"
-      >
+    <p
+      v-if="scheme.fields.length === 0"
+      class="builder__empty"
+    >
+      A schema declares the attributes an assumption carries. Add the first one.
+    </p>
+
+    <div
+      v-for="(field, index) in scheme.fields"
+      :key="index"
+      class="builder__field"
+    >
+      <div class="builder__row">
         <v-text-field
           :model-value="field.key"
           label="Key"
           placeholder="stored_under"
           density="compact"
-          @update:model-value="updateField(index, { key: $event, label: labelFor(field, $event) })"
+          :error-messages="keyProblem(field, index)"
+          @update:model-value="updateField(index, { key: $event, displayName: nameFor(field, $event) })"
         />
         <v-text-field
-          :model-value="field.label"
-          label="Label"
+          :model-value="field.displayName"
+          label="Display name"
           density="compact"
-          @update:model-value="updateField(index, { label: $event })"
+          @update:model-value="updateField(index, { displayName: $event })"
         />
         <v-select
           :model-value="field.type"
           :items="TYPE_OPTIONS"
           label="Type"
           density="compact"
-          @update:model-value="updateField(index, { type: $event })"
-        />
-        <v-combobox
-          v-if="field.type === 'enum'"
-          :model-value="field.options"
-          label="Options"
-          :placeholder="ENTER_TO_ADD_HINT"
-          density="compact"
-          multiple
-          chips
-          closable-chips
-          @update:model-value="updateField(index, { options: $event })"
-        />
-        <v-text-field
-          v-else
-          :model-value="field.unit ?? ''"
-          label="Unit"
-          density="compact"
-          @update:model-value="updateField(index, { unit: $event.length > 0 ? $event : null })"
+          @update:model-value="changeType(index, $event)"
         />
         <div class="builder__flags">
           <v-checkbox
@@ -84,85 +67,73 @@
             icon="mdi-delete-outline"
             variant="text"
             size="small"
-            :aria-label="`Remove ${field.label}`"
+            :aria-label="`Remove ${field.displayName.length > 0 ? field.displayName : 'this attribute'}`"
             @click="removeField(index)"
           />
         </div>
       </div>
-    </section>
 
-    <section class="builder__section">
-      <div class="builder__section-head">
-        <h3 class="builder__title">
-          Constraints
-        </h3>
-        <v-btn
-          variant="tonal"
-          size="small"
-          prepend-icon="mdi-plus"
-          :disabled="scheme.fields.length === 0"
-          @click="addConstraint"
-        >
-          Add constraint
-        </v-btn>
-      </div>
-
-      <p
-        v-if="scheme.constraints.length === 0"
-        class="builder__empty"
-      >
-        A constraint restricts what one attribute may hold. They are checked here before an assumption is
-        sent, and by the service after it.
-      </p>
+      <!-- What one kind of attribute needs beyond the five keys every attribute carries. -->
+      <v-combobox
+        v-if="field.type === 'enum'"
+        :model-value="field.options"
+        label="Options"
+        :placeholder="ENTER_TO_ADD_HINT"
+        density="compact"
+        :error-messages="field.options.length === 0 ? 'An enumeration needs at least one option' : undefined"
+        multiple
+        chips
+        closable-chips
+        @update:model-value="updateField(index, { options: $event.map((option) => String(option)) })"
+      />
 
       <div
-        v-for="(constraint, index) in scheme.constraints"
-        :key="index"
-        class="builder__constraint"
+        v-else-if="isNumeric(field.type)"
+        class="builder__row"
       >
-        <v-select
-          :model-value="constraint.field"
-          :items="fieldKeys"
-          label="Attribute"
+        <v-text-field
+          :model-value="asText(field.min)"
+          label="Min"
+          type="number"
           density="compact"
-          @update:model-value="updateConstraint(index, { field: $event })"
-        />
-        <v-select
-          :model-value="constraint.rule"
-          :items="RULE_OPTIONS"
-          label="Rule"
-          density="compact"
-          @update:model-value="updateConstraint(index, { rule: $event })"
+          hint="Optional"
+          persistent-hint
+          @update:model-value="updateField(index, { min: asNumber(field.type, $event) })"
         />
         <v-text-field
-          :model-value="valueText(constraint.value)"
-          label="Value"
+          :model-value="asText(field.max)"
+          label="Max"
+          type="number"
           density="compact"
-          :disabled="constraint.rule === 'required'"
-          @update:model-value="updateConstraint(index, { value: parseValue(constraint.rule, $event) })"
+          hint="Optional"
+          persistent-hint
+          @update:model-value="updateField(index, { max: asNumber(field.type, $event) })"
         />
         <v-text-field
-          :model-value="constraint.message ?? ''"
-          label="Message"
+          :model-value="asText(field.step)"
+          label="Step"
+          type="number"
           density="compact"
-          @update:model-value="updateConstraint(index, { message: $event.length > 0 ? $event : null })"
-        />
-        <v-btn
-          icon="mdi-delete-outline"
-          variant="text"
-          size="small"
-          aria-label="Remove this constraint"
-          @click="removeConstraint(index)"
+          hint="Optional"
+          persistent-hint
+          @update:model-value="updateField(index, { step: asNumber(field.type, $event) })"
         />
       </div>
-    </section>
+    </div>
+
+    <!--
+      Constraints are not declared here because the service does not support them yet, and an empty list is
+      what every scheme is written with. Saying so is better than an editor whose contents are dropped.
+    -->
+    <p class="builder__note">
+      Constraints are not supported by the service yet, so a schema is stored without them. What a field is
+      required to hold, what it may be chosen from and what a number is bounded by are all declared above.
+    </p>
   </div>
 </template>
 
 <script lang="ts">
-import type { FieldType, JsonValue } from '@truth-platform/core-ui'
-
-import type { ConstraintRule, Scheme, SchemeConstraint, SchemeField } from '@/models/scheme'
+import type { Scheme, SchemeField, SchemeFieldType } from '@/models/scheme'
 
 interface Props {
   scheme: Scheme
@@ -172,58 +143,71 @@ interface Emits {
   (event: 'update:scheme', scheme: Scheme): void
 }
 
-/** The kinds of value an attribute may be declared as. */
-const TYPE_OPTIONS: FieldType[] = [
-  'string',
-  'text',
-  'number',
-  'integer',
-  'boolean',
-  'date',
-  'datetime',
-  'enum',
-  'json',
+/** The kinds of attribute the service accepts, with the name each one is offered under. */
+const TYPE_OPTIONS: { title: string; value: SchemeFieldType }[] = [
+  { title: 'Text', value: 'string' },
+  { title: 'Yes / no', value: 'boolean' },
+  { title: 'Whole number', value: 'confined_number' },
+  { title: 'Decimal number', value: 'confined_float' },
+  { title: 'One of a list', value: 'enum' },
+  { title: 'Date', value: 'date' },
 ]
-
-/** The restrictions this client can both write and enforce. */
-const RULE_OPTIONS: ConstraintRule[] = [
-  'required',
-  'min',
-  'max',
-  'min_length',
-  'max_length',
-  'pattern',
-  'one_of',
-]
-
-/** The rules whose value is a list rather than a single one. */
-const LIST_RULES: ConstraintRule[] = ['one_of']
-
-/** The rules whose value is a number. */
-const NUMBER_RULES: ConstraintRule[] = ['min', 'max', 'min_length', 'max_length']
 </script>
 
 <script setup lang="ts">
 import { ENTER_TO_ADD_HINT, humanizeKey } from '@truth-platform/core-ui'
-import { computed } from 'vue'
+
+import { isNumeric } from '@/utils/scheme'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-const fieldKeys = computed<string[]>(() => props.scheme.fields.map((field) => field.key).filter((key) => key.length > 0))
+/**
+ * Keep the display name following the key until somebody writes a name of their own.
+ */
+const nameFor = (field: SchemeField, key: string): string =>
+  field.displayName.length === 0 || field.displayName === humanizeKey(field.key)
+    ? humanizeKey(key)
+    : field.displayName
 
 /**
- * Keep the label following the key until somebody writes a label of their own.
+ * Say what is wrong with a key, so that a schema is not declared with an attribute nothing can be stored under.
  */
-const labelFor = (field: SchemeField, key: string): string =>
-  field.label.length === 0 || field.label === humanizeKey(field.key) ? humanizeKey(key) : field.label
+const keyProblem = (field: SchemeField, index: number): string | undefined => {
+  if (field.key.trim().length === 0) {
+    return 'A key is required'
+  }
 
-const emitFields = (fields: SchemeField[]) => {
-  emit('update:scheme', { ...props.scheme, fields })
+  const duplicated = props.scheme.fields.some(
+    (candidate, at) => at !== index && candidate.key.trim() === field.key.trim(),
+  )
+
+  return duplicated ? 'Another attribute already uses this key' : undefined
 }
 
-const emitConstraints = (constraints: SchemeConstraint[]) => {
-  emit('update:scheme', { ...props.scheme, constraints })
+/**
+ * Render a bound as the text its input shows, leaving one that was never set empty.
+ */
+const asText = (value: number | null): string => (value === null ? '' : String(value))
+
+/**
+ * Read a typed bound, keeping a whole number whole and refusing anything that is not a number at all.
+ */
+const asNumber = (type: SchemeFieldType, typed: string): number | null => {
+  if (typed.trim().length === 0) {
+    return null
+  }
+
+  const parsed = Number(typed)
+  if (Number.isNaN(parsed)) {
+    return null
+  }
+
+  return type === 'confined_number' ? Math.round(parsed) : parsed
+}
+
+const emitFields = (fields: SchemeField[]) => {
+  emit('update:scheme', { fields })
 }
 
 const addField = () => {
@@ -231,16 +215,14 @@ const addField = () => {
     ...props.scheme.fields,
     {
       key: '',
-      label: '',
+      displayName: '',
       type: 'string',
-      array: false,
       required: false,
-      default: null,
+      array: false,
       options: [],
-      description: null,
-      unit: null,
-      placeholder: null,
-      group: null,
+      min: null,
+      max: null,
+      step: null,
       order: props.scheme.fields.length,
     },
   ])
@@ -250,75 +232,18 @@ const updateField = (index: number, change: Partial<SchemeField>) => {
   emitFields(props.scheme.fields.map((field, at) => (at === index ? { ...field, ...change } : field)))
 }
 
+/**
+ * Change what kind of attribute one field is, dropping whatever the previous kind carried.
+ *
+ * The bounds of a number mean nothing to an enumeration and its options mean nothing to a number, so they
+ * are cleared rather than kept and written out alongside a type that never asked for them.
+ */
+const changeType = (index: number, type: SchemeFieldType) => {
+  updateField(index, { type, options: [], min: null, max: null, step: null })
+}
+
 const removeField = (index: number) => {
   emitFields(props.scheme.fields.filter((_, at) => at !== index))
-}
-
-/**
- * Write one constraint back into the raw shape it is stored as, so that what is sent is what is read back.
- */
-const toRaw = (constraint: Omit<SchemeConstraint, 'raw'>): SchemeConstraint => ({
-  ...constraint,
-  raw: {
-    field: constraint.field,
-    rule: constraint.rule,
-    value: constraint.value,
-    ...(constraint.message === null ? {} : { message: constraint.message }),
-  },
-})
-
-const addConstraint = () => {
-  emitConstraints([
-    ...props.scheme.constraints,
-    toRaw({ field: fieldKeys.value[0] ?? '', rule: 'required', value: null, message: null }),
-  ])
-}
-
-const updateConstraint = (index: number, change: Partial<Omit<SchemeConstraint, 'raw'>>) => {
-  emitConstraints(
-    props.scheme.constraints.map((constraint, at) =>
-      at === index ? toRaw({ ...constraint, ...change }) : constraint,
-    ),
-  )
-}
-
-const removeConstraint = (index: number) => {
-  emitConstraints(props.scheme.constraints.filter((_, at) => at !== index))
-}
-
-/**
- * Render the value of a constraint as the single line it is typed on.
- */
-const valueText = (value: JsonValue): string => {
-  if (value === null) {
-    return ''
-  }
-
-  return Array.isArray(value) ? value.map((item) => String(item)).join(', ') : String(value)
-}
-
-/**
- * Read what was typed as the kind of value the chosen rule takes.
- */
-const parseValue = (rule: ConstraintRule, typed: string): JsonValue => {
-  if (typed.length === 0) {
-    return null
-  }
-
-  if (LIST_RULES.includes(rule)) {
-    return typed
-      .split(',')
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0)
-  }
-
-  if (NUMBER_RULES.includes(rule)) {
-    const parsed = Number(typed)
-
-    return Number.isNaN(parsed) ? typed : parsed
-  }
-
-  return typed
 }
 </script>
 
@@ -326,16 +251,10 @@ const parseValue = (rule: ConstraintRule, typed: string): JsonValue => {
 .builder {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-}
-
-.builder__section {
-  display: flex;
-  flex-direction: column;
   gap: 0.75rem;
 }
 
-.builder__section-head {
+.builder__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -347,28 +266,34 @@ const parseValue = (rule: ConstraintRule, typed: string): JsonValue => {
   font-weight: 600;
 }
 
-.builder__empty {
+.builder__empty,
+.builder__note {
   color: rgb(var(--v-theme-app-muted));
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
 }
 
-/*
- * One attribute is a row of inputs that wraps rather than a fixed grid, so a narrow window stacks it into a
- * legible column instead of squeezing six inputs into the width of one.
- */
-.builder__field,
-.builder__constraint {
+.builder__field {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.625rem;
   padding: 0.75rem;
   border: 0.0625rem solid rgb(var(--v-theme-app-border));
   border-radius: 0.5rem;
 }
 
-.builder__field > *,
-.builder__constraint > * {
+/*
+ * One attribute is a row of inputs that wraps rather than a fixed grid, so a narrow window stacks it into a
+ * legible column instead of squeezing five inputs into the width of one.
+ */
+.builder__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.builder__row > * {
   flex: 1 1 9rem;
   min-inline-size: 0;
 }

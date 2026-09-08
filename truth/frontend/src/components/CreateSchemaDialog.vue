@@ -135,7 +135,7 @@ const { notify, reportError } = useSnackbar()
 const name = ref<string>('')
 const description = ref<string>('')
 const revisionReason = ref<string>('')
-const scheme = ref<Scheme>({ fields: [], constraints: [] })
+const scheme = ref<Scheme>({ fields: [] })
 const saving = ref<boolean>(false)
 
 const canSave = computed<boolean>(() => {
@@ -144,7 +144,13 @@ const canSave = computed<boolean>(() => {
   }
 
   /* Every attribute has to be keyed, or it would be stored under nothing and read back as nothing. */
-  if (scheme.value.fields.some((field) => field.key.trim().length === 0)) {
+  const keys = scheme.value.fields.map((field) => field.key.trim())
+  if (keys.some((key) => key.length === 0) || new Set(keys).size !== keys.length) {
+    return false
+  }
+
+  /* An enumeration with nothing to choose from is a field nobody can fill in. */
+  if (scheme.value.fields.some((field) => field.type === 'enum' && field.options.length === 0)) {
     return false
   }
 
@@ -165,7 +171,7 @@ watch(
     name.value = ''
     description.value = ''
     revisionReason.value = ''
-    scheme.value = revised === null ? { fields: [], constraints: [] } : readScheme(revised.scheme)
+    scheme.value = revised === null ? { fields: [] } : readScheme(revised.scheme)
   },
 )
 

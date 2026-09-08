@@ -1,0 +1,30 @@
+# Dependencies. Every machine installs its own from the lockfile, which is what is committed instead.
+node_modules/
+
+# Build output. Rebuilt from source on demand, and committing it means every build shows up as a diff.
+dist/
+*.tsbuildinfo
+
+# Python environments and caches.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Local configuration, which is per machine and often holds secrets.
+.env
+.env.*
+!.env.example
+
+# Editor and operating system leavings.
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# Logs.
+*.log
+npm-debug.log*
