@@ -1,0 +1,146 @@
+name: skyscanner
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--quiet"]
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - skyscanner
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-skyscanner}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-skyscanner-secret}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - skyscanner
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    networks:
+      - skyscanner
+
+  events-service:
+    build:
+      context: ..
+      dockerfile: skyscanner/services/events_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: ${MONGO_DATABASE:-skyscanner}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      AUTH_ALLOW_ANONYMOUS: ${AUTH_ALLOW_ANONYMOUS:-true}
+      AUTH_ANONYMOUS_ROLES: ${AUTH_ANONYMOUS_ROLES:-admin}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - skyscanner
+
+  storage-service:
+    build:
+      context: ..
+      dockerfile: skyscanner/services/storage_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-skyscanner-artifacts}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-skyscanner}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-skyscanner-secret}
+      # What a large upload costs and how quickly a pick of many files is written. Past the threshold a file
+      # is written to the bucket in parts, so the memory it costs is the concurrency times the chunk rather
+      # than the size of the file. Every one of them has a default and only needs naming to be tuned.
+      S3_MULTIPART_THRESHOLD_BYTES: ${S3_MULTIPART_THRESHOLD_BYTES:-16777216}
+      S3_MULTIPART_CHUNK_BYTES: ${S3_MULTIPART_CHUNK_BYTES:-8388608}
+      S3_MULTIPART_CONCURRENCY: ${S3_MULTIPART_CONCURRENCY:-4}
+      S3_UPLOAD_CONCURRENCY: ${S3_UPLOAD_CONCURRENCY:-6}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      AUTH_ALLOW_ANONYMOUS: ${AUTH_ALLOW_ANONYMOUS:-true}
+      AUTH_ANONYMOUS_ROLES: ${AUTH_ANONYMOUS_ROLES:-admin}
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - skyscanner
+
+  notification-service:
+    build:
+      context: ..
+      dockerfile: skyscanner/services/notification_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: ${MONGO_DATABASE:-skyscanner}
+      # The bundled MailHog is only the default. Pointing these at your own relay in .env is all it takes to
+      # send through it instead, including a relay that wants credentials and TLS.
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-skyscanner@example.com}
+      NOTIFICATION_POLL_INTERVAL_SECONDS: ${NOTIFICATION_POLL_INTERVAL_SECONDS:-30}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:8080,http://localhost:5173}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - skyscanner
+
+  web:
+    build:
+      context: ..
+      dockerfile: skyscanner/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+        # Point these at the tile server of the deployment to turn the map of the coordinate field on.
+        VITE_MAP_TILE_URL: ${VITE_MAP_TILE_URL:-}
+        VITE_MAP_ATTRIBUTION: ${VITE_MAP_ATTRIBUTION:-}
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - events-service
+      - storage-service
+      - notification-service
+    networks:
+      - skyscanner
+
+volumes:
+  mongo-data:
+  minio-data:
+
+networks:
+  skyscanner:
+    driver: bridge

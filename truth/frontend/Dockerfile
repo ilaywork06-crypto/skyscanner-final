@@ -5,15 +5,15 @@ WORKDIR /app
 # Every workspace of the repository has to be declared before the lockfile can be installed against it,
 # even the ones this image never builds.
 COPY package.json package-lock.json ./
-COPY packages/ag-grid-ts/package.json ./packages/ag-grid-ts/package.json
-COPY packages/core-ui/package.json ./packages/core-ui/package.json
-COPY frontend/package.json ./frontend/package.json
+COPY libraries/ag-grid-ts/package.json ./libraries/ag-grid-ts/package.json
+COPY libraries/core-ui/package.json ./libraries/core-ui/package.json
+COPY skyscanner/frontend/package.json ./skyscanner/frontend/package.json
 COPY truth/frontend/package.json ./truth/frontend/package.json
 
 RUN npm ci
 
-COPY packages/ag-grid-ts ./packages/ag-grid-ts
-COPY packages/core-ui ./packages/core-ui
+COPY libraries/ag-grid-ts ./libraries/ag-grid-ts
+COPY libraries/core-ui ./libraries/core-ui
 COPY truth/frontend ./truth/frontend
 
 # The client asks its own origin for the API, and nginx is what forwards that on to whatever is answering.

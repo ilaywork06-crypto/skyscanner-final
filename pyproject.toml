@@ -14,8 +14,9 @@ dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/*", "services/*", "truth/backend"]
-exclude = ["packages/ag-grid-ts", "packages/core-ui"]
+members = ["libraries/*", "skyscanner/services/*", "truth/backend"]
+# The two TypeScript libraries live beside the Python ones and are not members of this workspace.
+exclude = ["libraries/ag-grid-ts", "libraries/core-ui"]
 
 [tool.uv.sources]
 skyscanner-models = { workspace = true }

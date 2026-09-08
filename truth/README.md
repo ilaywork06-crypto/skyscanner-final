@@ -11,6 +11,9 @@ truth/
 └── docker-compose.yml
 ```
 
+The shared components both this client and the Skyscanner one render with live in `libraries/` at the root of
+the repository, not here.
+
 ## Running it
 
 ### Everything, for anybody on the network
@@ -210,6 +213,7 @@ frontend/src/
 ```
 
 Everything not specific to this product - the cell renderers, the filters, the dynamic form inputs, the
-formatting, the theme switch - comes from `@truth-platform/core-ui`, which this client shares with the
-Skyscanner inventory. The service shares `skyscanner_common` and `skyscanner_models` with the Skyscanner
-services, which is where its document store access, settings, errors and filter payloads come from.
+formatting, the theme switch - comes from `@truth-platform/core-ui` in `libraries/`, which this client shares
+with the Skyscanner inventory. The service shares `libraries/skyscanner_common` and
+`libraries/skyscanner_models` with the Skyscanner services, which is where its document store access,
+settings, errors and filter payloads come from.

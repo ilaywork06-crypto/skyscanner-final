@@ -29,7 +29,6 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.d.ts",
-    "src/typed-router.d.ts",
     "src/**/*.vue",
     "vite.config.ts",
     "../../libraries/ag-grid-ts/src/**/*.ts",

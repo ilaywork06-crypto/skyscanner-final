@@ -9,10 +9,11 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # The register shares the document store access, the settings and the error handling of the platform, so the
-# packages come along with it. The other services do not, and are left out.
+# libraries come along with it. The Skyscanner services do not - but the workspace has to be whole before it
+# can be installed against its lockfile, so they are copied for that and nothing else.
 COPY pyproject.toml uv.lock ./
-COPY packages ./packages
-COPY services ./services
+COPY libraries ./libraries
+COPY skyscanner/services ./skyscanner/services
 COPY truth/backend ./truth/backend
 
 RUN uv sync --package truth-service --no-dev

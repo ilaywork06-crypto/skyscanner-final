@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/ag-grid-ts",
-    "packages/core-ui",
-    "frontend",
+    "libraries/ag-grid-ts",
+    "libraries/core-ui",
+    "skyscanner/frontend",
     "truth/frontend"
   ],
   "scripts": {

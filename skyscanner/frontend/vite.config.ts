@@ -10,11 +10,12 @@ import VueRouter from 'unplugin-vue-router/vite'
 import { defineConfig } from 'vite'
 import vuetify from 'vite-plugin-vuetify'
 
-/** Where the assumptions API is reached while the client is being developed against it. */
-const API_TARGET = process.env.TRUTH_API_URL ?? 'http://localhost:8000'
+const EVENTS_SERVICE_TARGET = process.env.EVENTS_SERVICE_URL ?? 'http://localhost:8000'
+const STORAGE_SERVICE_TARGET = process.env.STORAGE_SERVICE_URL ?? 'http://localhost:8001'
+const NOTIFICATION_SERVICE_TARGET = process.env.NOTIFICATION_SERVICE_URL ?? 'http://localhost:8002'
 
 /*
- * The oldest browsers the client is built for. Chrome 90 covers every workstation the register is opened on
+ * The oldest browsers the client is built for. Chrome 90 covers every workstation the inventory is opened on
  * today and several generations behind them, and the table library needs a hand of its own below Chrome 111 -
  * `libraries/ag-grid-ts/src/compatibility.ts` is where the colours it derives are worked out for those.
  */
@@ -26,14 +27,14 @@ const BROWSER_TARGETS: string[] = ['chrome90', 'edge90', 'firefox90', 'safari15'
  * The dev server refuses a request whose Host header is a name it was not told about, which is what stops a
  * page on the internet from resolving its own domain to this machine and reading the source through the
  * visitor's browser. An address is never a name, so reaching the server by IP has always worked; it is
- * opening it as `http://<machine>:5174` from another desk that gets turned away.
+ * opening it as `http://<machine>:5173` from another desk that gets turned away.
  *
  * The machine's own name is therefore allowed by default, which covers everybody on the network who reaches
- * it the obvious way. TRUTH_ALLOWED_HOSTS names any others - a short name, a domain, or `.example.com` for every name
+ * it the obvious way. SKYSCANNER_ALLOWED_HOSTS names any others - a short name, a domain, or `.example.com` for every name
  * under one - and `all` gives up the protection entirely, which is only sensible on a network you trust.
  */
 const readAllowedHosts = (): string[] | true => {
-  const named = (process.env.TRUTH_ALLOWED_HOSTS ?? '')
+  const named = (process.env.SKYSCANNER_ALLOWED_HOSTS ?? '')
     .split(',')
     .map((host) => host.trim())
     .filter((host) => host.length > 0)
@@ -56,19 +57,18 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@truth-platform/ag-grid-ts': fileURLToPath(
-        new URL('../../libraries/ag-grid-ts/src/index.ts', import.meta.url),
-      ),
+      '@truth-platform/ag-grid-ts': fileURLToPath(new URL('../../libraries/ag-grid-ts/src/index.ts', import.meta.url)),
       '@truth-platform/core-ui': fileURLToPath(new URL('../../libraries/core-ui/src/index.ts', import.meta.url)),
     },
   },
   server: {
     host: true,
-    /* A port of its own, so that this client and the inventory can be run side by side. */
-    port: 5174,
+    port: 5173,
     allowedHosts: readAllowedHosts(),
     proxy: {
-      '/api': { target: API_TARGET, changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, '') },
+      '/api/storage': { target: STORAGE_SERVICE_TARGET, changeOrigin: true },
+      '/api/notifications': { target: NOTIFICATION_SERVICE_TARGET, changeOrigin: true },
+      '/api': { target: EVENTS_SERVICE_TARGET, changeOrigin: true },
     },
   },
   build: {

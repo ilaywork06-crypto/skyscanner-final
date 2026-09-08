@@ -1,0 +1,522 @@
+<template>
+  <v-dialog
+    :model-value="modelValue"
+    max-width="56rem"
+    scrollable
+    @update:model-value="attemptClose"
+  >
+    <v-card class="edit-event">
+      <v-card-title class="edit-event__title">
+        Edit the event
+      </v-card-title>
+
+      <v-card-text class="edit-event__body">
+        <div class="edit-event__grid">
+          <div class="edit-event__field">
+            <label
+              class="edit-event__label"
+              for="edit-brief"
+            >
+              Event Brief
+              <UiInfoIcon label="What Event Brief means">
+                The short line this event is listed and searched by. Clearing it does not leave the event
+                without one: the system writes a brief out of what the event says about itself - its type,
+                the platforms it ran on, its industry and its date - and stores that instead.
+              </UiInfoIcon>
+            </label>
+            <v-text-field
+              id="edit-brief"
+              v-model="name"
+              placeholder="Enter event brief"
+              persistent-hint
+              :hint="name.trim().length === 0 ? BRIEF_HINT : ''"
+            />
+          </div>
+
+          <div class="edit-event__field">
+            <label
+              class="edit-event__label"
+              for="edit-platform"
+            >
+              Platform
+              <UiInfoIcon label="What Platform means">
+                The platforms declared for this industry on the Types page. An event that ran on several of
+                them names all of them.
+              </UiInfoIcon>
+            </label>
+            <v-select
+              id="edit-platform"
+              v-model="platforms"
+              :items="platformOptions"
+              item-title="name"
+              item-value="key"
+              multiple
+              chips
+              placeholder="Pick the platforms"
+            />
+          </div>
+
+          <div class="edit-event__field">
+            <label
+              class="edit-event__label"
+              for="edit-status"
+            >Status</label>
+            <v-select
+              id="edit-status"
+              v-model="status"
+              :items="STATUS_OPTIONS"
+            />
+          </div>
+
+          <div
+            v-if="asks('event_date')"
+            class="edit-event__field"
+          >
+            <label
+              class="edit-event__label"
+              for="edit-date"
+            >Event date</label>
+            <v-text-field
+              id="edit-date"
+              v-model="eventDate"
+              type="date"
+            />
+          </div>
+
+          <div
+            v-if="asks('experiment_result')"
+            class="edit-event__field"
+          >
+            <label
+              class="edit-event__label"
+              for="edit-result"
+            >Experiment result</label>
+            <v-select
+              id="edit-result"
+              v-model="experimentResult"
+              :items="RESULT_OPTIONS"
+              placeholder="Not known yet"
+              clearable
+            />
+          </div>
+
+          <div
+            v-if="asks('notes')"
+            class="edit-event__field edit-event__field--wide"
+          >
+            <label
+              class="edit-event__label"
+              for="edit-notes"
+            >
+              Information
+              <UiInfoIcon label="What Information means">
+                Free-text field describing anything worth knowing about the event.
+              </UiInfoIcon>
+            </label>
+            <v-textarea
+              id="edit-notes"
+              v-model="notes"
+              rows="3"
+            />
+          </div>
+        </div>
+
+        <!--
+          Every edit joins the history of the event, and a history without reasons only says that somebody
+          changed something. The reason is therefore asked for before the change can be saved.
+        -->
+        <div class="edit-event__field edit-event__field--wide">
+          <label
+            class="edit-event__label"
+            for="edit-reason"
+          ><span class="edit-event__required">*</span>Reason for this edit</label>
+          <v-text-field
+            id="edit-reason"
+            v-model="reason"
+            placeholder="Enter explanation about the edit..."
+          />
+        </div>
+
+        <!--
+          The additional attributes of the event: the fields its industry declared and its type asks for,
+          filled in here so that a value revealed after the upload has somewhere to go.
+        -->
+        <MetadataFieldsPanel
+          v-if="eventFields.length > 0 || legacyCount > 0"
+          :model-value="values"
+          :types="valueTypes"
+          :fields="eventFields"
+          title="Additional Event Attributes"
+          @update:model-value="values = $event"
+          @update:types="valueTypes = $event"
+        />
+
+        <div class="edit-event__files">
+          <h3 class="edit-event__section">
+            Files
+          </h3>
+          <!--
+            The files of an event used to be an add only list: a file uploaded by mistake, or one that was
+            superseded, stayed on the event for good. Marking one here detaches it as part of this very edit,
+            so the removal carries the same reason and lands in the history beside every other change.
+          -->
+          <StoredFilesEditor
+            v-model="keptFiles"
+            :stored="event.additional_files"
+            label="Attached files"
+          />
+          <FileDropzone
+            label="Add more files"
+            :files="newFiles"
+            @update:files="newFiles = $event"
+          />
+          <p
+            v-if="duplicateWarning.length > 0"
+            class="edit-event__duplicate"
+          >
+            {{ duplicateWarning }}
+          </p>
+        </div>
+      </v-card-text>
+
+      <v-card-actions class="edit-event__actions">
+        <!--
+          A button that is disabled without saying why reads as a broken button, so the reason it is waiting
+          for is spelled out beside it.
+        -->
+        <span
+          v-if="blockedReason.length > 0"
+          class="edit-event__blocked"
+        >
+          {{ blockedReason }}
+        </span>
+        <v-spacer />
+        <v-btn
+          variant="text"
+          @click="attemptClose"
+        >
+          Cancel
+        </v-btn>
+        <v-btn
+          color="primary"
+          :loading="saving"
+          :disabled="!canSave"
+          @click="submit"
+        >
+          Save
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+
+    <UnsavedChangesDialog
+      v-model="confirmOpen"
+      @discard="discard"
+    />
+  </v-dialog>
+</template>
+
+<script lang="ts">
+import type { Artifact, EventStatus, ExperimentResult, FieldType, JsonValue, OptionalEventField } from '@/models/common'
+import { UiDropzone as FileDropzone, UiInfoIcon, toDateInput, toIsoDate } from '@truth-platform/core-ui'
+import type { EventDetail } from '@/models/event'
+import type { FieldDefinition } from '@truth-platform/core-ui'
+import type { Platform } from '@/models/platform'
+
+interface Props {
+  modelValue: boolean
+  event: EventDetail
+}
+
+interface Emits {
+  (event: 'update:modelValue', value: boolean): void
+  (event: 'saved', updated: EventDetail): void
+}
+
+/** What the user is told while Save is refusing to be pressed. */
+const NOTHING_CHANGED = 'Nothing has changed yet'
+const REASON_MISSING = 'A reason is needed before this can be saved'
+const DUPLICATE_FILES = 'A file cannot be attached twice under the same name'
+</script>
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+
+import MetadataFieldsPanel from '@/components/MetadataFieldsPanel.vue'
+import StoredFilesEditor from '@/components/StoredFilesEditor.vue'
+import { useDirtyGuard } from '@truth-platform/core-ui'
+import { useSnackbar } from '@truth-platform/core-ui'
+import { updateEvent } from '@/requests/events'
+import { listEventTypes, listFields, listPlatforms } from '@/requests/schema'
+import { uploadArtifacts } from '@/requests/storage'
+import { collisionMessage } from '@/utils/artifacts'
+import { toMetadataAttributes, toValueMap, toValueTypeMap } from '@truth-platform/core-ui'
+
+
+const STATUS_OPTIONS: EventStatus[] = ['draft', 'operational']
+const RESULT_OPTIONS: ExperimentResult[] = ['successful', 'partial', 'failed']
+
+/** What the brief field says while it is empty, so that clearing it never reads as losing it. */
+const BRIEF_HINT = 'Left empty, a brief is written for this event'
+
+const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
+
+const { notify, reportError } = useSnackbar()
+
+const name = ref<string>('')
+const platforms = ref<string[]>([])
+const status = ref<EventStatus>('draft')
+const experimentResult = ref<ExperimentResult | null>(null)
+const eventDate = ref<string>('')
+const notes = ref<string>('')
+const platformOptions = ref<Platform[]>([])
+const askedFields = ref<OptionalEventField[]>([])
+const eventFields = ref<FieldDefinition[]>([])
+const values = ref<Record<string, JsonValue>>({})
+const valueTypes = ref<Record<string, FieldType>>({})
+/* The stored files that will survive the edit, which starts out as every one of them. */
+const keptFiles = ref<Artifact[]>([])
+const newFiles = ref<File[]>([])
+const reason = ref<string>('')
+const saving = ref<boolean>(false)
+
+/* What the dialog was filled with when it opened, which is what an edit is measured against. */
+const openedWith = ref<string>('')
+
+/**
+ * Describe everything an edit can change as one comparable string.
+ *
+ * The reason is deliberately left out: it explains a change rather than being one, so typing a reason on its
+ * own is not an edit. Files carry no value equality, so a picked file is described by what identifies it.
+ */
+const snapshot = (): string =>
+  JSON.stringify({
+    name: name.value,
+    platforms: [...platforms.value],
+    status: status.value,
+    experimentResult: experimentResult.value,
+    eventDate: eventDate.value,
+    notes: notes.value,
+    values: { ...values.value },
+    keptFiles: keptFiles.value.map((file) => file.id),
+    files: newFiles.value.map((file) => `${file.name}:${file.size}`),
+  })
+
+/*
+ * Saving an event nobody changed used to be possible: it bumped the timestamp, mailed every subscriber and
+ * left a line in the history for a change that never happened. The dialog now compares what it holds against
+ * what it opened with, and the reason is asked for on top of a real change rather than instead of one.
+ */
+const isDirty = computed<boolean>(() => snapshot() !== openedWith.value)
+
+/*
+ * A picked file that the event already holds under the same name is refused rather than stored beside it:
+ * two records nobody can tell apart help nobody, and only the person picking knows which one they meant.
+ * Files marked for removal do not count, so replacing a file is take the old one off and add the new one.
+ */
+const duplicateWarning = computed<string>(() =>
+  collisionMessage(keptFiles.value, newFiles.value, null, 'This event'),
+)
+
+/*
+ * Values the event already holds under keys nothing declares. Nothing new can be written under such a key,
+ * but what is already there has to stay visible, so the panel is opened for them even when this industry
+ * has declared no event field at all.
+ */
+const legacyCount = computed<number>(() => {
+  const declared = new Set(eventFields.value.map((field) => field.key))
+
+  return Object.keys(values.value).filter((key) => !declared.has(key)).length
+})
+
+const blockedReason = computed<string>(() => {
+  if (duplicateWarning.value.length > 0) {
+    return DUPLICATE_FILES
+  }
+
+  if (!isDirty.value) {
+    return NOTHING_CHANGED
+  }
+
+  if (reason.value.trim().length === 0) {
+    return REASON_MISSING
+  }
+
+  return ''
+})
+
+const canSave = computed<boolean>(() => blockedReason.value.length === 0)
+
+const asks = (field: OptionalEventField): boolean => askedFields.value.includes(field)
+
+const fill = async (): Promise<void> => {
+  name.value = props.event.name
+  platforms.value = [...props.event.platforms]
+  status.value = props.event.status
+  experimentResult.value = props.event.experiment_result
+  eventDate.value = toDateInput(props.event.event_date)
+  notes.value = props.event.notes
+  values.value = toValueMap(props.event.metadata)
+  valueTypes.value = toValueTypeMap(props.event.metadata)
+  keptFiles.value = [...props.event.additional_files]
+  newFiles.value = []
+  reason.value = ''
+
+  try {
+    const [declaredPlatforms, types, declaredFields] = await Promise.all([
+      listPlatforms(props.event.industry),
+      listEventTypes(props.event.industry),
+      listFields({ scope: 'event', industry: props.event.industry }),
+    ])
+    platformOptions.value = declaredPlatforms
+    eventFields.value = declaredFields
+    /*
+     * Which built in fields are on the form is decided by the types the event was filed under, so an event
+     * of several types is asked for everything any one of them asks for.
+     */
+    const keys = new Set(props.event.event_type.map((reference) => reference.name))
+    askedFields.value = [
+      ...new Set(
+        types
+          .filter((candidate) => keys.has(candidate.name))
+          .flatMap((candidate) => candidate.fields),
+      ),
+    ]
+  } catch (error) {
+    reportError(error)
+  }
+
+  openedWith.value = snapshot()
+}
+
+const close = () => {
+  emit('update:modelValue', false)
+}
+
+/* Whatever was typed into the reason is worth keeping as well, so it counts towards leaving with changes. */
+const { confirmOpen, attemptClose, discard } = useDirtyGuard({
+  isDirty: () => isDirty.value || reason.value.trim().length > 0,
+  close,
+})
+
+const submit = async (): Promise<void> => {
+  if (!canSave.value || saving.value) {
+    return
+  }
+
+  saving.value = true
+  try {
+    const uploaded = await uploadArtifacts(newFiles.value, {
+      ownerKind: 'events',
+      ownerId: props.event.id,
+      kind: 'additional',
+      folder: null,
+      descriptor: 'Files added after the event was created',
+    })
+    const updated = await updateEvent(props.event.id, {
+      reason: reason.value.trim(),
+      name: name.value.trim(),
+      platforms: [...platforms.value],
+      status: status.value,
+      experiment_result: experimentResult.value,
+      event_date: toIsoDate(eventDate.value),
+      notes: notes.value,
+      /* What survives the edit plus what was just added, which is how a removal reaches the service at all. */
+      additional_files: [...keptFiles.value, ...uploaded],
+      metadata: toMetadataAttributes(values.value, valueTypes.value),
+    })
+    notify('The event was updated', 'success')
+    emit('saved', updated)
+    close()
+  } catch (error) {
+    reportError(error)
+  } finally {
+    saving.value = false
+  }
+}
+
+watch(
+  () => props.modelValue,
+  (open) => {
+    if (open) {
+      void fill()
+    }
+  },
+)
+</script>
+
+<style scoped>
+.edit-event {
+  background-color: rgb(var(--v-theme-surface));
+}
+
+.edit-event__title {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.edit-event__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-block-size: 65vh;
+}
+
+.edit-event__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+}
+
+.edit-event__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-inline-size: 0;
+}
+
+.edit-event__field--wide {
+  grid-column: 1 / -1;
+}
+
+/*
+ * A label that carries an information icon is taller than a plain one, which would start the control under it
+ * lower than the control beside it. Reserving the icon's height for every label keeps the row aligned.
+ */
+.edit-event__label {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  min-block-size: 1.5rem;
+}
+
+.edit-event__required {
+  color: rgb(var(--v-theme-error));
+  margin-inline-end: 0.125rem;
+}
+
+.edit-event__section {
+  font-size: 1rem;
+  font-weight: 600;
+  padding-block-end: 0.5rem;
+}
+
+.edit-event__actions {
+  padding-inline: 1rem;
+}
+
+.edit-event__blocked {
+  font-size: 0.8125rem;
+  opacity: 0.7;
+}
+
+.edit-event__files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.edit-event__duplicate {
+  font-size: 0.8125rem;
+  color: rgb(var(--v-theme-error));
+}
+</style>

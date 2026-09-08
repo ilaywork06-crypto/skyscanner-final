@@ -1,0 +1,377 @@
+"""
+The rules around the events themselves - creating one out of the wizard, reading the inventory and editing later on.
+
+:date: 2026-08-11
+:author: t_beatrice
+"""
+# ----- IMPORTS ----- #
+
+from datetime import datetime
+from math import ceil
+from typing import Any
+
+from skyscanner_common.datetime_utils import ensure_utc, utc_now
+from skyscanner_common.errors import ConflictError, NotFoundError, ValidationError
+from skyscanner_common.ids import new_id
+from skyscanner_models.common import UserContext
+from skyscanner_models.enums import FieldScope
+from skyscanner_models.event import EventCreateRequest, EventResponse, EventSummaryResponse, EventUpdateRequest
+from skyscanner_models.pagination import Page
+from skyscanner_models.query import SearchQuery
+from skyscanner_models.subscription import SubscriptionTrigger
+
+from events_service.constants import EVENT_ID_COUNTER
+from events_service.documents import EventDocument, OutboxDocument, TypeDocument
+from events_service.repositories.counter_repository import CounterRepository
+from events_service.repositories.event_repository import EventRepository
+from events_service.repositories.outbox_repository import OutboxRepository
+from events_service.services.artifact_rules import require_unique_artifacts
+from events_service.services.brief import build_event_brief
+from events_service.services.entity_service import EntityService
+from events_service.services.field_service import FieldService
+from events_service.services.revision_service import RevisionService, event_update_changes
+from events_service.services.type_service import TypeService
+
+# ----- CLASSES ----- #
+
+
+class EventService:
+    """
+    Owner of the inventory, turning the two steps of the create wizard into one stored document.
+    """
+
+    def __init__(
+        self,
+        repository: EventRepository,
+        counter_repository: CounterRepository,
+        outbox_repository: OutboxRepository,
+        type_service: TypeService,
+        field_service: FieldService,
+        entity_service: EntityService,
+        revision_service: RevisionService,
+    ) -> None:
+        """
+        Bind the service to the repositories and the sibling services it needs.
+
+        :param repository: Persistence of the events.
+        :param counter_repository: Source of the running event numbers.
+        :param outbox_repository: Persistence of the pending notifications.
+        :param type_service: Resolver of the declared event types and platforms.
+        :param field_service: Owner of the dynamic schema, which the entities of an event are shaped by.
+        :param entity_service: Owner of the entities nested inside an event.
+        :param revision_service: Owner of the edit history.
+        """
+        self._repository = repository
+        self._counter_repository = counter_repository
+        self._outbox_repository = outbox_repository
+        self._type_service = type_service
+        self._field_service = field_service
+        self._entity_service = entity_service
+        self._revision_service = revision_service
+
+    async def search_events(self, query: SearchQuery) -> Page[EventSummaryResponse]:
+        """
+        Read one page of the inventory the way the toolbar and the table asked for it.
+
+        :param query: Query requested by the client.
+        :return: The page of matching events.
+        """
+        documents, total = await self._repository.search(search=query)
+
+        return Page[EventSummaryResponse](
+            items=[document.to_summary() for document in documents],
+            total=total,
+            page=query.page,
+            page_size=query.page_size,
+            pages=ceil(total / query.page_size) if query.page_size else 0,
+        )
+
+    async def search_documents(self, query: SearchQuery) -> tuple[list[EventDocument], int]:
+        """
+        Read one page of the inventory as stored documents, used by the grid and the export endpoints.
+
+        :param query: Query requested by the client.
+        :return: The documents of the page and the total amount of matching events.
+        """
+        return await self._repository.search(search=query)
+
+    async def get_event(self, event_id: str) -> EventResponse:
+        """
+        Read a single event together with every entity nested inside it.
+
+        :param event_id: Identifier of the event.
+        :return: The detail representation of the event.
+        :raises NotFoundError: When the identifier is unknown.
+        """
+        document = await self._require_event(event_id=event_id)
+
+        return document.to_response()
+
+    async def create_event(self, request: EventCreateRequest, user: UserContext) -> EventResponse:
+        """
+        Store a new event with the files, the dynamic values and the entities the wizard collected.
+
+        :param request: Event supplied by the user.
+        :param user: Identity the event is attributed to.
+        :return: The stored event.
+        :raises ValidationError: When no event type was chosen or a declared rule is broken.
+        :raises NotFoundError: When a chosen event type, platform or entity type is not declared.
+        """
+        if not request.event_type_keys:
+            raise ValidationError(message="At least one event type has to be chosen")
+
+        require_unique_artifacts(artifacts=request.additional_files, label="the event")
+
+        types = await self._type_service.resolve_event_types(keys=request.event_type_keys)
+        await self._type_service.resolve_platforms(keys=request.platforms, industry=request.industry)
+        # The event fields the chosen types ask for are the form, so those are the ones that may be required.
+        attributes, flattened = await self._field_service.build_values(
+            scope=FieldScope.EVENT,
+            supplied=request.metadata,
+            industry=request.industry,
+            asked=_asked_keys(types),
+        )
+        event_number = await self._counter_repository.next_value(name=EVENT_ID_COUNTER)
+        event_date = ensure_utc(request.event_date)
+
+        document = EventDocument(
+            id=new_id(),
+            event_id=event_number,
+            # A brief nobody wrote is derived from what the event already says about itself rather than
+            # refused, which is what lets a watchdog - and a user in a hurry - file an event at all.
+            name=_resolve_brief(request=request, types=types, event_number=event_number, moment=event_date),
+            event_type=[declared.to_reference() for declared in types],
+            event_type_names=[declared.name for declared in types],
+            event_type_keys=[declared.key for declared in types],
+            industry=request.industry,
+            platforms=list(request.platforms),
+            status=request.status,
+            experiment_result=request.experiment_result,
+            event_date=event_date,
+            notes=request.notes,
+            additional_files=request.additional_files,
+            metadata=attributes,
+            data=flattened,
+            upload_source=request.upload_source,
+            created_by=user.username,
+        )
+
+        for index, entity_request in enumerate(request.entities, start=1):
+            entity = await self._entity_service.build_entity(
+                request=entity_request,
+                industry=request.industry,
+                event_values=flattened,
+                object_id=index,
+                user=user,
+            )
+            document.objects.append(entity)
+            document.entity_counts[entity.object_type_key] = document.entity_counts.get(entity.object_type_key, 0) + 1
+
+        await self._repository.insert(document=document)
+        await self._publish(
+            document=document,
+            trigger=SubscriptionTrigger.EVENT_CREATED,
+            summary=f"A new {document.industry} event was uploaded by {user.username}",
+        )
+
+        return document.to_response()
+
+    async def update_event(self, event_id: str, request: EventUpdateRequest, user: UserContext) -> EventResponse:
+        """
+        Change an event so that data revealed after the upload can be filled in later on.
+
+        :param event_id: Identifier of the event that is changed.
+        :param request: Attributes the caller wants to change.
+        :param user: Identity the change is attributed to.
+        :return: The changed event.
+        :raises NotFoundError: When the identifier or a chosen event type is unknown.
+        :raises ValidationError: When a value breaks a declared rule or the request changes nothing.
+        """
+        document = await self._require_event(event_id=event_id)
+        updates: dict[str, Any] = request.model_dump(exclude_unset=True, exclude_none=True)
+        # The reason belongs to the history of the change, not to the event itself.
+        updates.pop("reason", None)
+
+        if request.platforms is not None:
+            await self._type_service.resolve_platforms(
+                keys=request.platforms,
+                industry=request.industry or document.industry,
+            )
+            updates["platforms"] = list(request.platforms)
+
+        if request.event_type_keys is not None:
+            types = await self._type_service.resolve_event_types(keys=request.event_type_keys)
+            updates["event_type"] = [declared.to_reference().model_dump() for declared in types]
+            updates["event_type_names"] = [declared.name for declared in types]
+            updates["event_type_keys"] = [declared.key for declared in types]
+
+        # A brief that was emptied is written again rather than stored empty: the brief is what the event is
+        # listed and recognised by, so an event may be left to the convention but never left without one. It
+        # is written after the values it is derived from, so an edit that changes both agrees with itself.
+        if request.name is not None and not request.name.strip():
+            updates["name"] = build_event_brief(
+                type_names=list(updates.get("event_type_names", document.event_type_names)),
+                platforms=list(updates.get("platforms", document.platforms)),
+                industry=str(updates.get("industry", document.industry)),
+                moment=ensure_utc(request.event_date) or document.event_date or document.created_at,
+                event_number=document.event_id,
+                upload_source=document.upload_source,
+            )
+
+        if request.metadata is not None:
+            # The types are read back tolerantly: one that was removed since the event was filed under it
+            # only means the form no longer asks what it used to, never that the event refuses to be saved.
+            declared_types = await self._type_service.resolve_known_event_types(
+                keys=request.event_type_keys if request.event_type_keys is not None else document.event_type_keys,
+            )
+            # Whatever the event already holds under a key nobody declared stays readable and editable: the
+            # rule is that no new such key is written, not that an event written before it becomes unsavable.
+            attributes, flattened = await self._field_service.build_values(
+                scope=FieldScope.EVENT,
+                supplied=request.metadata,
+                industry=request.industry or document.industry,
+                asked=_asked_keys(declared_types),
+                carried=set(document.data),
+            )
+            updates["metadata"] = [attribute.model_dump() for attribute in attributes]
+            updates["data"] = flattened
+
+        if request.additional_files is not None:
+            # The list a caller hands back is the whole list, so an edit that attaches a file the event
+            # already holds is caught here rather than after it has been written.
+            require_unique_artifacts(artifacts=request.additional_files, label="the event")
+            updates["additional_files"] = [artifact.model_dump() for artifact in request.additional_files]
+
+        if request.status is not None:
+            updates["status"] = request.status.value
+
+        if request.experiment_result is not None:
+            updates["experiment_result"] = request.experiment_result.value
+
+        if request.event_date is not None:
+            updates["event_date"] = ensure_utc(request.event_date)
+
+        # The attributes a request carries are not the attributes it changes: an editor that saves a form
+        # without touching it hands back exactly what is stored. Such a request is refused rather than
+        # applied, because it came with a reason for a change that is not in it, and because carrying it
+        # out would stamp a new author and moment on the event and mail every subscriber about nothing.
+        if not event_update_changes(document=document, updates=updates):
+            raise ValidationError(
+                message="The request does not change anything about the event",
+                details={"id": event_id, "reason": request.reason},
+            )
+
+        updates["updated_at"] = utc_now()
+        updates["updated_by"] = user.username
+        await self._repository.update_fields(identifier=event_id, updates=updates)
+
+        refreshed = await self._require_event(event_id=event_id)
+        await self._revision_service.record_event_change(
+            before=document,
+            after=refreshed,
+            reason=request.reason,
+            user=user,
+        )
+        await self._publish(
+            document=refreshed,
+            trigger=SubscriptionTrigger.EVENT_UPDATED,
+            summary=f"The event was updated by {user.username}: {request.reason}",
+        )
+
+        return refreshed.to_response()
+
+    async def delete_event(self, event_id: str, user: UserContext) -> None:
+        """
+        Remove an event together with the entities nested inside it.
+
+        The event is marked as removed rather than erased, so it stops answering every read of the inventory
+        while its files, its history and the entities under it stay recoverable.
+
+        :param event_id: Identifier of the event that is removed.
+        :param user: Identity the removal is attributed to.
+        :raises NotFoundError: When the identifier is unknown.
+        """
+        removed = await self._repository.delete(identifier=event_id, user=user.username)
+        if not removed:
+            raise NotFoundError(message="The event does not exist", details={"id": event_id})
+
+    async def _require_event(self, event_id: str) -> EventDocument:
+        """
+        Read an event and refuse to continue when it does not exist.
+
+        :param event_id: Identifier of the event.
+        :return: The stored event.
+        :raises NotFoundError: When the event does not exist.
+        """
+        document = await self._repository.find_by_id(identifier=event_id)
+        if document is None:
+            raise NotFoundError(message="The event does not exist", details={"id": event_id})
+
+        return document
+
+    async def _publish(self, document: EventDocument, trigger: SubscriptionTrigger, summary: str) -> None:
+        """
+        Write a pending notification that the mail service turns into a message.
+
+        :param document: Event the notification is about.
+        :param trigger: Change that produced the notification.
+        :param summary: Short sentence rendered in the body of the mail.
+        """
+        await self._outbox_repository.insert(
+            document=OutboxDocument(
+                trigger=trigger,
+                event_id=document.id,
+                event_number=document.event_id,
+                event_name=document.name,
+                industry=document.industry,
+                event_type_keys=document.event_type_keys,
+                summary=summary,
+            ),
+        )
+
+
+# ----- FUNCTIONS ----- #
+
+
+def _asked_keys(types: list[TypeDocument]) -> set[str]:
+    """
+    Collect the declared event fields the chosen types ask for, which is what the create form showed.
+
+    An event may be filed under several types at once, and it is asked for everything any one of them asks
+    for - exactly the way the built in fields of a type are read.
+
+    :param types: Event types the event is filed under.
+    :return: The keys of the declared event fields the event form asks for.
+    """
+    return {key for declared in types for key in declared.custom_fields}
+
+
+def _resolve_brief(
+    request: EventCreateRequest,
+    types: list[TypeDocument],
+    event_number: int,
+    moment: datetime | None,
+) -> str:
+    """
+    Decide what a new event is listed under - what its uploader wrote, or what the convention writes for them.
+
+    :param request: Event supplied by the user.
+    :param types: Event types the event was filed under.
+    :param event_number: Running number the system minted for the event.
+    :param moment: Moment the activity happened, empty when the event type does not ask for one.
+    :return: The brief the event is stored under.
+    """
+    written = (request.name or "").strip()
+    if written:
+        return written
+
+    return build_event_brief(
+        type_names=[declared.name for declared in types],
+        platforms=list(request.platforms),
+        industry=request.industry,
+        # The date of the activity is what a reader recognises the event by; an event whose type does not
+        # ask for one is dated by the moment it was uploaded, which is the only moment it has.
+        moment=moment or utc_now(),
+        event_number=event_number,
+        upload_source=request.upload_source,
+    )
