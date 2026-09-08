@@ -110,7 +110,7 @@
             -->
             <v-list-item
               title="Platforms"
-              prepend-icon="mdi-rocket-launch-outline"
+              prepend-icon="mdi-alpha-p-box"
               to="/platforms"
             />
             <v-list-item
