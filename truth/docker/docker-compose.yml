@@ -1,52 +1,33 @@
-# Truth, running as three containers: the document store, the register service and the web client.
+# Truth: the client and the in-memory stand-in behind it.
 #
-# Run it from this directory with `docker compose up --build`. The client is published on every interface
-# of the host, so anybody on the network reaches it at http://<this machine>:8090 - and reaches the API
-# through that same port, because nginx forwards /api on to the service.
+#     docker compose up --build          # then open http://<this machine>:8090
 #
-# The register comes up empty. `truth/backend/scripts/seed.py` fills it with as much as you want to try it
-# with, and `docker-compose.mock.yml` beside this one runs the in-memory stand-in instead of the real thing.
+# Two containers and nothing else. The stand-in answers exactly the endpoints the real assumptions API
+# offers, in exactly the shapes it answers them in, and holds its register in memory - so it is the same on
+# every run and nothing written through it survives a restart. That is what makes it useful: a register that
+# is always the same, for working on the client without needing the real service up.
 #
-# To serve the client in front of an API that is already running somewhere else, use the frontend-only
-# file beside this one instead: docker-compose.frontend.yml.
-name: truth
+# The client is published on port 8090 of every interface and reaches the stand-in through that same port,
+# because nginx forwards /api on to it. There is no second address to hand out.
+#
+# To put this client in front of the real API instead, use the file beside this one:
+#
+#     TRUTH_API_URL=http://<where your API answers>/ \
+#         docker compose -f docker-compose.frontend.yml up --build
+name: truth-mock
 
 services:
-  mongo:
-    image: mongo:7
-    restart: unless-stopped
-    volumes:
-      - truth-mongo-data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 5s
-    networks:
-      - truth
-
   truth-api:
     build:
       context: ../..
-      dockerfile: truth/backend/Dockerfile
+      dockerfile: truth/Dockerfile.mock
     restart: unless-stopped
-    environment:
-      MONGO_URI: mongodb://mongo:27017
-      MONGO_DATABASE: ${TRUTH_DATABASE:-truth}
-      # nginx strips this before forwarding, so the service never sees it and has to be told: it is what the
-      # documentation page needs to write its own addresses with, and what "try it out" sends against.
-      TRUTH_ROOT_PATH: /api
-    # Deliberately not published: the only thing that needs to reach it is the web container.
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/industry?offset=0&limit=1')"]
       interval: 5s
       timeout: 3s
       retries: 12
-      start_period: 5s
-    depends_on:
-      mongo:
-        condition: service_healthy
+      start_period: 3s
     networks:
       - truth
 
@@ -56,20 +37,13 @@ services:
       dockerfile: truth/frontend/Dockerfile
       args:
         VITE_API_BASE_URL: /api
-        # Who the client creates things as until somebody sets a name of their own in the interface.
         VITE_DEFAULT_CREATOR: ${TRUTH_DEFAULT_CREATOR:-}
     restart: unless-stopped
     environment:
-      # The mock alongside it. Everything about pointing this image somewhere else is this one address,
-      # and the trailing slash is what strips the /api prefix off on the way through.
       TRUTH_API_URL: http://truth-api:8000/
     ports:
-      # Bound to every interface on purpose - that is what puts it in front of the network rather than
-      # only this machine. Set TRUTH_PORT to move it, or 127.0.0.1:8090:80 to keep it to this machine.
       - "${TRUTH_PORT:-8090}:80"
     depends_on:
-      # nginx waits until the API is actually answering rather than merely existing, so that the very
-      # first page load has something behind it.
       truth-api:
         condition: service_healthy
     networks:
@@ -78,6 +52,3 @@ services:
 networks:
   truth:
     driver: bridge
-
-volumes:
-  truth-mongo-data:

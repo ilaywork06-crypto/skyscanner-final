@@ -45,6 +45,14 @@ interface GeneratedColumn {
   colId: string
   field: string
   headerName: string
+  /**
+   * What the column is headed on a Hebrew page, or nothing when there is no Hebrew name for it.
+   *
+   * A column with no Hebrew name keeps its English one in both languages rather than falling back to its
+   * key: the built in columns are named by the service and carry both, and a declared one carries whatever
+   * the person who declared it wrote down - which for most of them is one name, in one language.
+   */
+  headerNameHebrew: string
   sortable: boolean
   filter: string | boolean
   floatingFilter: boolean
@@ -62,6 +70,14 @@ interface GeneratedColumn {
   headerClass: string | null
   cellClass: string | null
   autoHeight: boolean
+  /**
+   * Whether a value too long for one line is wrapped onto several rather than cut short with an ellipsis.
+   *
+   * Optional, because the columns a service generates do not carry it and a table that never asked for
+   * wrapping should keep the single line it has. It only means anything alongside `autoHeight`: wrapping a
+   * cell inside a row of fixed height writes the extra lines behind the row below it.
+   */
+  wrapText?: boolean
   fieldType: string
   dynamic: boolean
   /** Whether nobody declared this column and it was read off the stored documents instead. */

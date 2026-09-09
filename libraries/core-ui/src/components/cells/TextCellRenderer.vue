@@ -1,7 +1,7 @@
 <template>
   <span
     class="text-cell"
-    :class="{ 'text-cell--expandable': isExpandable }"
+    :class="{ 'text-cell--expandable': isExpandable, 'text-cell--wrapped': wraps }"
   >
     <!--
       A value short enough to be shown whole has its addresses read out of it, so a link stored in a field is
@@ -9,8 +9,15 @@
       fragment, and half of an address is not one - the viewer behind the affordance shows the whole value
       and reads the addresses out of that instead.
     -->
+    <!--
+      `dir="auto"` rather than a direction of its own: the value decides which way it runs, from the first
+      letter in it that has a direction at all. A Hebrew note inside an English table reads right to left and
+      an English identifier inside a Hebrew one reads left to right, and a value that mixes the two keeps
+      each run the way it was written instead of the whole line being turned around.
+    -->
     <span
       class="text-cell__preview"
+      dir="auto"
       @click="openViewer"
     >
       <UiLinkedText
@@ -80,6 +87,8 @@ const LIST_DISPLAY = 'list'
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../../composables/useLanguage'
+
 import { computed, ref } from 'vue'
 
 import HighlightedText from '../../components/HighlightedText.vue'
@@ -87,6 +96,8 @@ import UiLinkedText from '../../components/UiLinkedText.vue'
 import { readContext } from '../../utils/grid-context'
 import { matchesTerm, previewAround } from '../../utils/highlight'
 import { splitNotes, toBulletedText, toNotePreview } from '../../utils/notes'
+
+const { t } = useLanguage()
 
 const props = defineProps<Props>()
 
@@ -112,7 +123,21 @@ const items = computed<string[]>(() => splitNotes(text.value))
  */
 const hasSeveralLines = computed<boolean>(() => items.value.length > 1)
 
-const isExpandable = computed<boolean>(() => text.value.length > TEXT_LIMIT || hasSeveralLines.value)
+/*
+ * Whether this column shows a value whole, across as many lines as it takes, rather than on the one line a
+ * table row usually gives it. It is a property of the column rather than of the value: a table is either
+ * one a reader scans or one they read, and that is decided where the columns are, not per cell.
+ */
+const wraps = computed<boolean>(() => props.params.colDef?.wrapText === true)
+
+/*
+ * A wrapped cell hides nothing, so it offers no way of opening what it is hiding. The affordance is for the
+ * cells that had to window their value, and on a cell showing all of it, it would open a viewer holding
+ * exactly what is already on screen.
+ */
+const isExpandable = computed<boolean>(
+  () => !wraps.value && (text.value.length > TEXT_LIMIT || hasSeveralLines.value),
+)
 
 /* The one line a cell has room for: the items of a list strung along it, and free text with its breaks flattened. */
 const oneLine = computed<string>(() =>
@@ -123,10 +148,17 @@ const search = computed<string>(() => readContext(props.params).search)
 
 const preview = computed<string>(() => previewAround(oneLine.value, search.value, TEXT_LIMIT))
 
-const display = computed<string>(() => (text.value.length === 0 ? EMPTY_PLACEHOLDER : preview.value))
-
-/** What the viewer reads out: the items of a list as bullets, and free text exactly as it was written. */
+/** The whole value: the items of a list as bullets, and free text exactly as it was written. */
 const full = computed<string>(() => (isList.value ? toBulletedText(items.value) : text.value))
+
+const display = computed<string>(() => {
+  if (text.value.length === 0) {
+    return EMPTY_PLACEHOLDER
+  }
+
+  /* Wrapped, the value is shown as it was written - the items of a list as lines, free text with its breaks. */
+  return wraps.value ? full.value : preview.value
+})
 
 const isMatch = computed<boolean>(() => matchesTerm(display.value, search.value))
 
@@ -137,7 +169,7 @@ const isMatch = computed<boolean>(() => matchesTerm(display.value, search.value)
  */
 const mayHideMatch = computed<boolean>(() => isExpandable.value && matchesTerm(text.value, search.value))
 
-const headerName = computed<string>(() => props.params.colDef?.headerName ?? 'Value')
+const headerName = computed<string>(() => props.params.colDef?.headerName ?? t('value.title'))
 
 /**
  * Open the viewer from the text itself, which is where a reader who already knows the value is cut off
@@ -167,6 +199,23 @@ const openViewer = (event: MouseEvent) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * A wrapped cell reads as a paragraph rather than as a line: it keeps the breaks the value was written with,
+ * breaks the long words that would otherwise push the column open, and sits at the top of its row so that
+ * the first line of a tall cell is level with the short cells beside it.
+ */
+.text-cell--wrapped {
+  align-items: flex-start;
+  inline-size: 100%;
+}
+
+.text-cell--wrapped .text-cell__preview {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .text-cell--expandable .text-cell__preview {

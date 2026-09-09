@@ -51,7 +51,11 @@ const INDENT = 2
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../../composables/useLanguage'
+
 import { computed, ref } from 'vue'
+
+const { t } = useLanguage()
 
 const props = defineProps<Props>()
 
@@ -72,7 +76,7 @@ const preview = computed<string>(() =>
   pretty.value.length === 0 ? EMPTY_PLACEHOLDER : truncate(pretty.value.replace(/\s+/g, ' '), PREVIEW_LIMIT),
 )
 
-const headerName = computed<string>(() => props.params.colDef?.headerName ?? 'Value')
+const headerName = computed<string>(() => props.params.colDef?.headerName ?? t('value.title'))
 
 /**
  * Open the viewer from the text itself, which is where a reader who already knows the value is cut off

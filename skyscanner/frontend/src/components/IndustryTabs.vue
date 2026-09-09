@@ -1,7 +1,7 @@
 <template>
   <nav
     class="industry-tabs"
-    aria-label="Industries"
+    :aria-label="t('tabs.label')"
   >
     <!--
       All is not an industry, it is the absence of a choice of one, so it leads the row and never takes part
@@ -13,7 +13,7 @@
       variant="text"
       @click="emit('update:modelValue', null)"
     >
-      All
+      {{ t('tabs.all') }}
     </v-btn>
     <v-btn
       v-for="(industry, index) in orderedIndustries"
@@ -56,9 +56,12 @@ const DRAG_MEDIA_TYPE = 'text/plain'
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '@truth-platform/core-ui'
 import { computed, ref } from 'vue'
 
 import { moveIndustry, orderIndustries, readOrder, writeOrder } from '@/utils/industry-order'
+
+const { t } = useLanguage()
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()

@@ -20,6 +20,15 @@ interface GridContext {
   toggleExpanded: (rowId: string) => void
   /** Open the row itself - its own page, wherever the product keeps one. */
   openRow: (rowId: string) => void
+  /*
+   * Narrow the table to a set of values of one column, from inside a panel opened underneath a row.
+   *
+   * A panel is where a reader finally sees what a row is filed under, and "show me the others like this" is
+   * the question they ask next. Without this they would have to remember the value, close the panel, find
+   * the column and type it back in - so the panel offers it, and it is written into the column's own filter
+   * rather than alongside it, which is what makes the chip above the table and the header agree about it.
+   */
+  filterBy: (colId: string, values: string[]) => void
   openArtifact: (artifact: Artifact) => void
   downloadArtifact: (artifact: Artifact) => void
   findRow: (rowId: string) => GridRow | undefined
@@ -53,6 +62,7 @@ const EMPTY_CONTEXT: GridContext = {
   expandedIds: [],
   toggleExpanded: () => undefined,
   openRow: () => undefined,
+  filterBy: () => undefined,
   openArtifact: () => undefined,
   downloadArtifact: () => undefined,
   findRow: () => undefined,

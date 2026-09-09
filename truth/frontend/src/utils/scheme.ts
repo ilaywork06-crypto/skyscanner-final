@@ -8,7 +8,7 @@
  */
 
 import type { FieldType, JsonValue } from '@truth-platform/core-ui'
-import { humanizeKey } from '@truth-platform/core-ui'
+import { humanizeKey, language } from '@truth-platform/core-ui'
 
 import type { Scheme, SchemeField, SchemeFieldType, StoredScheme } from '@/models/scheme'
 
@@ -17,6 +17,24 @@ const KEY_ALIASES: string[] = ['key', 'name', 'field', 'field_name', 'id']
 
 /** The keys a stored field may carry its display name under. */
 const NAME_ALIASES: string[] = ['display_name', 'displayName', 'label', 'title', 'display', 'caption']
+
+/**
+ * The keys a stored field may carry its Hebrew display name under.
+ *
+ * Read as generously as every other alias, and for the same reason: a schema is written by hand or by a
+ * script somewhere else, so the client recognises the spellings somebody would plausibly have used rather
+ * than insisting on one nobody was told about.
+ */
+const HEBREW_NAME_ALIASES: string[] = [
+  'display_name_he',
+  'displayNameHe',
+  'display_name_hebrew',
+  'label_he',
+  'title_he',
+  'name_he',
+  'he',
+  'hebrew',
+]
 
 /** The keys a stored field may name its type with. */
 const TYPE_ALIASES: string[] = ['type', 'field_type', 'data_type', 'kind']
@@ -50,9 +68,36 @@ const TYPE_BY_NAME: Record<string, SchemeFieldType> = {
   enum: 'enum',
   select: 'enum',
   choice: 'enum',
+  ultra_enum: 'ultra_enum',
+  'ultra enum': 'ultra_enum',
+  ultraenum: 'ultra_enum',
   date: 'date',
   datetime: 'date',
+  multi_field: 'multi_field',
+  'multi field': 'multi_field',
+  multifield: 'multi_field',
 }
+
+/**
+ * The keys this client owns on a stored field, which are the ones it writes and therefore may overwrite.
+ *
+ * Everything else a field carries is somebody else's and is carried back out untouched. The list is the
+ * spellings this client would ever write, plus the aliases it reads them under - a field read through the
+ * alias `label` and written back under `display_name` would otherwise go out carrying both, one of them
+ * stale.
+ */
+const OWNED_KEYS: Set<string> = new Set([
+  ...KEY_ALIASES,
+  ...NAME_ALIASES,
+  ...HEBREW_NAME_ALIASES,
+  ...TYPE_ALIASES,
+  ...OPTION_ALIASES,
+  ...REQUIRED_ALIASES,
+  ...ARRAY_ALIASES,
+  'min',
+  'max',
+  'step',
+])
 
 /** What a field whose type cannot be read is treated as, which is the type that holds anything. */
 const FALLBACK_TYPE: SchemeFieldType = 'string'
@@ -67,11 +112,28 @@ const RENDER_TYPES: Record<SchemeFieldType, FieldType> = {
   confined_number: 'integer',
   confined_float: 'number',
   enum: 'enum',
+  /* An ultra enum is an enumeration, so it is picked from a list and painted as a chip like any other. */
+  ultra_enum: 'enum',
   date: 'date',
+  /*
+   * A multi field holds a value made of several, and nothing here knows what those are. It is therefore
+   * painted as the structure it is - readable, openable, and whole - rather than flattened into a word that
+   * would claim to be the value. That is the honest rendering until the shape of one is written down.
+   */
+  multi_field: 'json',
 }
 
 /** Which kinds carry bounds and an increment, and are typed as numbers wherever one is entered. */
 const NUMERIC_TYPES: SchemeFieldType[] = ['confined_number', 'confined_float']
+
+/**
+ * Which kinds are declared with a vocabulary of their own.
+ *
+ * An ultra enum is an enumeration, so it is offered and stored with the list of values every enumeration
+ * carries. Everything else it may hold beyond that is carried through as it was found rather than guessed
+ * at, which is what `extras` is for.
+ */
+const OPTION_TYPES: SchemeFieldType[] = ['enum', 'ultra_enum']
 
 /**
  * How one kind of attribute is rendered - the type the columns and the form inputs are chosen by.
@@ -82,6 +144,11 @@ const renderType = (type: SchemeFieldType): FieldType => RENDER_TYPES[type] ?? '
  * Whether a kind of attribute is entered as a number, which decides how a typed value is stored.
  */
 const isNumeric = (type: SchemeFieldType): boolean => NUMERIC_TYPES.includes(type)
+
+/**
+ * Whether a kind of attribute is drawn from a vocabulary declared with it.
+ */
+const hasOptions = (type: SchemeFieldType): boolean => OPTION_TYPES.includes(type)
 
 /**
  * Read one string out of a stored dictionary, trying each alias in turn.
@@ -196,14 +263,18 @@ const buildField = (input: {
   return {
     key: input.key,
     displayName: input.displayName,
+    displayNameHebrew: readString(input.raw, HEBREW_NAME_ALIASES) ?? '',
     type,
     array,
     required: readFlag(input.raw, REQUIRED_ALIASES),
-    options: type === 'enum' ? readOptions(input.raw) : [],
+    options: hasOptions(type) ? readOptions(input.raw) : [],
     min: isNumeric(type) ? readNumber(input.raw, 'min') : null,
     max: isNumeric(type) ? readNumber(input.raw, 'max') : null,
     step: isNumeric(type) ? readNumber(input.raw, 'step') : null,
     order: input.order,
+    extras: Object.fromEntries(
+      Object.entries(input.raw).filter(([key]) => !OWNED_KEYS.has(key)),
+    ),
   }
 }
 
@@ -250,6 +321,11 @@ const readScheme = (stored: StoredScheme | null | undefined): Scheme => ({
  */
 const writeField = (field: SchemeField): Record<string, JsonValue> => {
   const raw: Record<string, JsonValue> = {
+    /*
+     * Whatever the field carried that this client does not own goes out first, so that the keys it does own
+     * are written over the top of it and can never be shadowed by a stale copy of themselves.
+     */
+    ...field.extras,
     key: field.key.trim(),
     display_name: field.displayName.trim(),
     type: field.type,
@@ -257,7 +333,12 @@ const writeField = (field: SchemeField): Record<string, JsonValue> => {
     array: field.array,
   }
 
-  if (field.type === 'enum') {
+  /* A Hebrew name is written only when there is one, so a schema declared without one stays as it was. */
+  if (field.displayNameHebrew.trim().length > 0) {
+    raw.display_name_he = field.displayNameHebrew.trim()
+  }
+
+  if (hasOptions(field.type)) {
     raw.options = [...field.options]
   }
 
@@ -310,4 +391,31 @@ const mergeFields = (schemes: Scheme[]): SchemeField[] => {
   return merged
 }
 
-export { isNumeric, mergeFields, readField, readScheme, readType, renderType, writeField, writeScheme }
+/**
+ * What one declared attribute is called in the language the interface is currently written in.
+ *
+ * A schema that declared a Hebrew name is read in Hebrew; one that did not keeps the name it was declared
+ * under, in both languages, because that name is the register's own vocabulary rather than this client's.
+ */
+const fieldLabel = (field: SchemeField): string => {
+  if (language.value === 'he' && field.displayNameHebrew.trim().length > 0) {
+    return field.displayNameHebrew.trim()
+  }
+
+  return field.displayName.length > 0 ? field.displayName : humanizeKey(field.key)
+}
+
+export {
+  HEBREW_NAME_ALIASES,
+  OPTION_TYPES,
+  fieldLabel,
+  hasOptions,
+  isNumeric,
+  mergeFields,
+  readField,
+  readScheme,
+  readType,
+  renderType,
+  writeField,
+  writeScheme,
+}

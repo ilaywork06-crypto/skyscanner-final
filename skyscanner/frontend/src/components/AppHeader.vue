@@ -57,7 +57,7 @@
           role="switch"
           :ripple="false"
           :aria-checked="isDark"
-          :aria-label="isDark ? 'Switch to the light theme' : 'Switch to the dark theme'"
+          :aria-label="isDark ? t('app.toLight') : t('app.toDark')"
           @click="toggle"
         >
           <span
@@ -72,6 +72,29 @@
         </v-btn>
 
         <!--
+          The language is a pair of buttons rather than a menu, because there are two of them and each is
+          written in itself: a reader who cannot read the language currently on screen can still find the
+          one they came for.
+        -->
+        <div
+          class="app-header__languages"
+          role="group"
+          :aria-label="t('language.label')"
+        >
+          <button
+            v-for="name in LANGUAGES"
+            :key="name"
+            type="button"
+            class="app-header__language"
+            :class="{ 'app-header__language--active': language === name }"
+            :aria-pressed="language === name"
+            @click="setLanguage(name)"
+          >
+            {{ LANGUAGE_NAMES[name] }}
+          </button>
+        </div>
+
+        <!--
           How the system is configured and who is looking at it are two different questions, and they used to
           share one button: the industries, the schema and the types all hung off the account icon, where
           nobody would look for them. The cog now holds everything that shapes the system, and the account
@@ -83,24 +106,24 @@
               v-bind="activator"
               icon="mdi-cog"
               variant="text"
-              aria-label="Settings"
-              title="Settings"
+              :aria-label="t('app.settings')"
+              :title="t('app.settings')"
             />
           </template>
           <v-list density="compact">
-            <v-list-subheader>Settings</v-list-subheader>
+            <v-list-subheader>{{ t('app.settings') }}</v-list-subheader>
             <!--
               Subscriptions are hidden behind their flag rather than taken out of the menu, so the entry
               comes back with the feature instead of having to be written a second time.
             -->
             <v-list-item
               v-if="SUBSCRIPTIONS_ENABLED"
-              title="Subscriptions"
+              :title="t('app.subscriptions')"
               prepend-icon="mdi-bell-outline"
               to="/subscriptions"
             />
             <v-list-item
-              title="Industries"
+              :title="t('app.industries')"
               prepend-icon="mdi-account-group-outline"
               to="/industries"
             />
@@ -109,17 +132,17 @@
               reads beside the industries rather than two levels inside a page about types.
             -->
             <v-list-item
-              title="Platforms"
+              :title="t('app.platforms')"
               prepend-icon="mdi-alpha-p-box"
               to="/platforms"
             />
             <v-list-item
-              title="Schema"
+              :title="t('app.schema')"
               prepend-icon="mdi-table-cog"
               to="/schema"
             />
             <v-list-item
-              title="Types"
+              :title="t('app.types')"
               prepend-icon="mdi-shape-outline"
               to="/types"
             />
@@ -132,8 +155,8 @@
               v-bind="activator"
               icon="mdi-account-circle-outline"
               variant="text"
-              aria-label="Account"
-              title="Account"
+              :aria-label="t('app.account')"
+              :title="t('app.account')"
             />
           </template>
           <!--
@@ -142,10 +165,10 @@
             than being empty, and it is where the settings of the account itself will go.
           -->
           <v-list density="compact">
-            <v-list-subheader>Account</v-list-subheader>
+            <v-list-subheader>{{ t('app.account') }}</v-list-subheader>
             <v-list-item
-              title="No account settings yet"
-              subtitle="The system reads your identity from the proxy that signed you in."
+              :title="t('app.noAccount')"
+              :subtitle="t('app.identityNote')"
               prepend-icon="mdi-account-outline"
               disabled
             />
@@ -161,10 +184,11 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 
-import { useAppTheme } from '@truth-platform/core-ui'
+import { LANGUAGES, LANGUAGE_NAMES, useAppTheme, useLanguage } from '@truth-platform/core-ui'
 import { SUBSCRIPTIONS_ENABLED } from '@/features'
 
 const { isDark, toggle } = useAppTheme()
+const { t, language, setLanguage } = useLanguage()
 </script>
 
 <style scoped>
@@ -278,6 +302,44 @@ const { isDark, toggle } = useAppTheme()
   transition: transform 0.2s ease-in-out;
   transform: translateX(1.625rem);
   color: rgb(var(--v-theme-on-surface));
+}
+
+/*
+ * The two languages sit in one pill, the way the two halves of a segmented control do. Each is written in
+ * itself rather than in the language currently on screen, so the switch is legible from either side of it.
+ */
+.app-header__languages {
+  display: inline-flex;
+  align-items: center;
+  border: 0.0625rem solid rgba(var(--v-theme-on-surface), 0.35);
+  border-radius: 999rem;
+  overflow: hidden;
+}
+
+.app-header__language {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding-inline: 0.625rem;
+  padding-block: 0.375rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition:
+    opacity 0.15s ease-in-out,
+    background-color 0.15s ease-in-out;
+}
+
+.app-header__language:hover {
+  opacity: 1;
+}
+
+.app-header__language--active {
+  opacity: 1;
+  background-color: rgba(var(--v-theme-on-surface), 0.16);
+  font-weight: 600;
 }
 
 .app-header__toggle-knob--end {

@@ -1,51 +1,37 @@
 /**
- * Every call around the assumptions - the window of the register a table is showing, and one assumption whole.
- *
- * Nothing here reads the register. The table asks a question and is handed the one window it is showing,
- * which is what lets a register of any size be worked with through a browser that could never hold it.
+ * Every call around the assumptions - the rows of the register and the reading of a single one.
  */
 
-import type { AssumptionDetail, AssumptionDraft, AssumptionRow } from '@/models/assumption'
-import type { AssumptionPage, AssumptionQuery, Facet } from '@/models/query'
+import type { AssumptionDetail, AssumptionDraft, AssumptionSummary } from '@/models/assumption'
 import { client } from '@/requests/client'
+import { readAll } from '@/requests/paging'
 
 const ASSUMPTIONS_PATH = '/assumption'
 
 /**
- * Ask the register the whole question the table is asking, and take back the one window it is showing.
+ * How many readings are in the air at once while the listed assumptions are being completed.
  *
- * This is a POST because the question is a structure rather than a word. A filter model written into a query
- * string is a filter model waiting to be cut short by whichever proxy in the way has the shortest opinion
- * about how long an address may be.
+ * The listing carries neither the values of an assumption nor the industries it belongs to, so every row has
+ * to be read on its own before the table can filter or colour by either. Doing that one at a time makes a
+ * register of two hundred assumptions two hundred round trips end to end; doing it without a ceiling opens
+ * two hundred sockets at once and several browsers refuse past six.
  */
-const queryAssumptions = async (query: AssumptionQuery): Promise<AssumptionPage> => {
-  const response = await client.post<AssumptionPage>(`${ASSUMPTIONS_PATH}/query`, query)
+const DETAIL_CONCURRENCY = 6
+
+/**
+ * Read one window of the assumptions.
+ */
+const listAssumptions = async (offset: number, limit: number): Promise<AssumptionSummary[]> => {
+  const response = await client.get<AssumptionSummary[]>(ASSUMPTIONS_PATH, { params: { offset, limit } })
 
   return response.data
 }
 
 /**
- * Read one window of the register as it stands, newest first and narrowed by nothing.
+ * Read every assumption, as the listing hands them over.
  */
-const listAssumptions = async (offset: number, limit: number): Promise<AssumptionRow[]> => {
-  const response = await client.get<AssumptionRow[]>(ASSUMPTIONS_PATH, { params: { offset, limit } })
-
-  return response.data
-}
-
-/**
- * Read every value one column is known to hold, which is what its filter offers to pick from.
- *
- * The vocabulary is gathered off the register rather than off the declarations, so a column offers what is
- * actually there - including the values somebody wrote before a schema was revised to name them.
- */
-const readFacet = async (key: string, industry: string | null): Promise<Facet> => {
-  const response = await client.get<Facet>(`${ASSUMPTIONS_PATH}/facets/${encodeURIComponent(key)}`, {
-    params: industry === null ? {} : { industry },
-  })
-
-  return response.data
-}
+const readAllAssumptions = async (onProgress?: (loaded: number) => void): Promise<AssumptionSummary[]> =>
+  readAll(listAssumptions, onProgress)
 
 /**
  * Read one assumption whole, at the revision it is currently at.
@@ -66,6 +52,38 @@ const readLatestAssumption = async (assumptionId: string): Promise<AssumptionDet
 }
 
 /**
+ * Complete a batch of listed assumptions by reading each of them, several at a time.
+ *
+ * One reading that fails does not take the batch down with it: the row it belongs to is simply left as the
+ * listing gave it, which is a row that shows everything but its values and its industries. A register where
+ * one assumption is unreadable is still a register the other rows can be worked with.
+ */
+const readAssumptionDetails = async (
+  assumptionIds: string[],
+  onLoaded: (detail: AssumptionDetail) => void,
+  onFailed?: (assumptionId: string, error: Error) => void,
+): Promise<void> => {
+  let next = 0
+
+  const worker = async (): Promise<void> => {
+    while (next < assumptionIds.length) {
+      const index = next
+      next += 1
+      const assumptionId = assumptionIds[index]
+      try {
+        onLoaded(await readLatestAssumption(assumptionId))
+      } catch (error) {
+        onFailed?.(assumptionId, error instanceof Error ? error : new Error('The assumption could not be read'))
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(DETAIL_CONCURRENCY, assumptionIds.length) }, () => worker()),
+  )
+}
+
+/**
  * Store a new assumption and hand back the identifier it was given.
  */
 const createAssumption = async (draft: AssumptionDraft): Promise<string> => {
@@ -74,4 +92,12 @@ const createAssumption = async (draft: AssumptionDraft): Promise<string> => {
   return response.data.id
 }
 
-export { createAssumption, listAssumptions, queryAssumptions, readAssumption, readFacet, readLatestAssumption }
+export {
+  DETAIL_CONCURRENCY,
+  createAssumption,
+  listAssumptions,
+  readAllAssumptions,
+  readAssumption,
+  readAssumptionDetails,
+  readLatestAssumption,
+}

@@ -40,6 +40,7 @@ import SetColumnFilter from './components/filters/SetColumnFilter.vue'
 export type { FilterChip, ScopeFilter } from './components/ActiveFilters.vue'
 export type { QuickFilterChoice } from './components/QuickFilters.vue'
 export type { AppTheme, ThemeNames } from './composables/useAppTheme'
+export type { Dictionary, Language, LanguageState, Translations } from './composables/useLanguage'
 export type { SnackbarTone } from './composables/useSnackbar'
 export type {
   Artifact,
@@ -80,13 +81,20 @@ export type { LinkSegment } from './utils/links'
 export type { ThemeColors } from './utils/grid-theme'
 
 export { configureThemes, useAppTheme } from './composables/useAppTheme'
+export {
+  LANGUAGES,
+  LANGUAGE_NAMES,
+  language,
+  registerTranslations,
+  translate,
+  useLanguage,
+} from './composables/useLanguage'
 export { useCellRenderers, useColumnFilters } from './composables/useCellRenderers'
 export { useDirtyGuard } from './composables/useDirtyGuard'
 export { useSnackbar } from './composables/useSnackbar'
 
 export type { SheetContent } from './utils/sheets'
 export { delimiterOf, parseDelimited, readWorkbook, wholeLines } from './utils/sheets'
-export { ENTER_TO_ADD_HINT } from './utils/hints'
 export { readActiveTemplate, writeActiveTemplate } from './utils/active-template'
 export { applicableFields, dependenciesHold, dependencyHolds, isFilled } from './utils/dependencies'
 export { downloadBlob, openLink } from './utils/download'
@@ -118,6 +126,12 @@ export {
   useSearchTerm,
 } from './utils/grid-context'
 export { buildGridTheme } from './utils/grid-theme'
+export { gridIsRtl, gridLanguageKey, gridLocaleText, localiseColumns } from './utils/grid-locale'
+/*
+ * Imported for what loading it does rather than for what it exports: it puts the words of the table into
+ * the dictionary, and it has to have done so before the first component of this library renders.
+ */
+export { SHARED_TRANSLATIONS } from './utils/translations'
 export { matchesTerm, previewAround, splitHighlights } from './utils/highlight'
 export { installRuntimeShims } from './utils/runtime'
 export { holdsLink, splitLinks } from './utils/links'

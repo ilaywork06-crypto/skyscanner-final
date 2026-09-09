@@ -5,9 +5,9 @@
     <div class="sky-page__content">
       <div class="industry__heading">
         <v-btn
-          icon="mdi-chevron-left"
+          :icon="direction === 'rtl' ? 'mdi-chevron-right' : 'mdi-chevron-left'"
           variant="text"
-          aria-label="Back to the industries"
+          :aria-label="t('industries.back')"
           to="/industries"
         />
         <h1 class="industry__title">
@@ -21,6 +21,7 @@
 </template>
 
 <script setup lang="ts">
+import { useLanguage } from '@truth-platform/core-ui'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -28,11 +29,12 @@ import AppHeader from '@/components/AppHeader.vue'
 import AssumptionsRegister from '@/components/AssumptionsRegister.vue'
 import { useRegister } from '@/composables/useRegister'
 
+const { t, direction } = useLanguage()
 const route = useRoute('/industries/[id]')
 const { industries, findIndustry } = useRegister()
 
 const industryId = computed<string>(() => route.params.id)
-const industryName = computed<string>(() => findIndustry(industryId.value)?.name ?? 'Industry')
+const industryName = computed<string>(() => findIndustry(industryId.value)?.name ?? t('industries.fallbackName'))
 </script>
 
 <style scoped>

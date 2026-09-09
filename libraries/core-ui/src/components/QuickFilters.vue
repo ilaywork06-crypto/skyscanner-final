@@ -17,7 +17,7 @@
         size="small"
         icon="mdi-lightning-bolt-outline"
       />
-      Quick filters
+      {{ t('quick.label') }}
     </span>
 
     <v-menu
@@ -69,7 +69,7 @@
         <template v-if="pill.picked.length > 0">
           <v-divider />
           <v-list-item
-            title="Clear"
+            :title="t('filters.clear')"
             prepend-icon="mdi-close"
             @click="emit('update', { colId: pill.colId, values: [] })"
           />
@@ -85,7 +85,7 @@
       prepend-icon="mdi-filter-remove-outline"
       @click="clearAll"
     >
-      CLEAR QUICK FILTERS
+      {{ t('quick.clear') }}
     </v-btn>
   </div>
 </template>
@@ -126,8 +126,12 @@ export type { QuickFilterChoice }
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { useLanguage } from '../composables/useLanguage'
+
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+const { t } = useLanguage()
 
 /**
  * Read the values one column is currently narrowed to, taken from the conditions of the table itself.
@@ -164,7 +168,7 @@ const summaryOf = (pill: QuickFilterPill): string => {
     return labels.join(', ')
   }
 
-  return `${labels.length} picked`
+  return t('quick.picked', { count: labels.length })
 }
 
 const toggle = (pill: QuickFilterPill, value: string) => {

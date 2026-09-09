@@ -24,6 +24,8 @@
       @save-template="onOpenSaveTemplate"
       @export="onExport"
       @download-files="onDownloadFiles"
+      @export-bundle="onExportBundle"
+      @import="importDialog = true"
       @select-all="onSelectAll"
       @create="createDialog = true"
       @toggle-fullscreen="fullscreen = !fullscreen"
@@ -98,32 +100,37 @@
       @created="onCreated"
     />
 
+    <ImportBundleDialog
+      v-model="importDialog"
+      @restored="onRestored"
+    />
+
     <v-dialog
       v-model="templateDialog"
       max-width="28rem"
       @update:model-value="onTemplateDialogToggle"
     >
       <v-card>
-        <v-card-title>Save the current view</v-card-title>
+        <v-card-title>{{ t('view.saveTitle') }}</v-card-title>
         <v-card-text class="inventory__dialog">
           <v-text-field
             v-model="templateName"
-            label="Name"
+            :label="t('view.name')"
           />
           <v-text-field
             v-model="templateDescription"
-            label="Description"
+            :label="t('view.description')"
           />
           <v-checkbox
             v-model="templateShared"
-            label="Share with other users"
+            :label="t('view.share')"
             hide-details
           />
           <p class="inventory__dialog-hint">
             {{
               templateShared
-                ? 'Every user of the system will see this view.'
-                : 'This view stays private and is kept in this browser only.'
+                ? t('view.sharedNote')
+                : t('view.privateNote')
             }}
           </p>
         </v-card-text>
@@ -271,13 +278,23 @@ import EventsToolbar from '@/components/EventsToolbar.vue'
 import FileViewerDialog from '@/components/FileViewerDialog.vue'
 import ExpandedRows from '@/components/inventory/ExpandedRows.vue'
 import { buildExportRequest, useEventsGrid } from '@/composables/useEventsGrid'
-import { ActiveFilters } from '@truth-platform/core-ui'
+import {
+  ActiveFilters,
+  useLanguage,
+} from '@truth-platform/core-ui'
 import { PaginationBar } from '@truth-platform/core-ui'
 import { QuickFilters } from '@truth-platform/core-ui'
 import { useSnackbar } from '@truth-platform/core-ui'
 import { useIndustries } from '@/composables/useIndustries'
 import { downloadArtifact } from '@/requests/storage'
-import { createTemplate, downloadEventFiles, exportEvents, listTemplates } from '@/requests/templates'
+import ImportBundleDialog from '@/components/ImportBundleDialog.vue'
+import {
+  createTemplate,
+  downloadEventBundle,
+  downloadEventFiles,
+  exportEvents,
+  listTemplates,
+} from '@/requests/templates'
 import { readActiveTemplate, writeActiveTemplate } from '@truth-platform/core-ui'
 import { downloadBlob } from '@truth-platform/core-ui'
 
@@ -286,6 +303,7 @@ const props = defineProps<Props>()
 const router = useRouter()
 const { industries } = useIndustries()
 const { notify, reportError } = useSnackbar()
+const { t } = useLanguage()
 
 const controller = useEventsGrid(props.industry)
 
@@ -294,6 +312,7 @@ const templates = ref<TableTemplate[]>([])
 const visibleColumns = ref<string[]>([])
 const selectedIds = ref<string[]>([])
 const createDialog = ref<boolean>(false)
+const importDialog = ref<boolean>(false)
 const templateDialog = ref<boolean>(false)
 const switchDialog = ref<boolean>(false)
 const restoreDialog = ref<boolean>(false)
@@ -559,10 +578,47 @@ const onExport = async (choice: ExportChoice): Promise<void> => {
     downloadBlob(exported.blob, exported.name)
     notify(
       choice.selectionOnly
-        ? `${picked.length} selected event(s) were exported`
-        : 'The current view was exported',
+        ? t('inventory.exportedSelected', { count: picked.length })
+        : t('inventory.exported'),
       'success',
     )
+  } catch (error) {
+    reportError(error)
+  }
+}
+
+/**
+ * Download the current view, or the ticked rows, as a bundle that can be read back in.
+ *
+ * A bundle carries its files, so it is packed exactly the way the plain file archive is - by the storage
+ * service, out of a manifest this service wrote - and takes exactly as long. What it costs is worth saying
+ * before it starts rather than after.
+ */
+const onExportBundle = async (selectionOnly: boolean): Promise<void> => {
+  const picked = selectionOnly ? selectedIds.value : []
+  archiving.value = true
+  notify(t('bundle.packing'), 'info')
+  try {
+    const bundle = await downloadEventBundle(buildExportRequest(controller, visibleColumns.value, picked))
+    downloadBlob(bundle.blob, bundle.name)
+    notify(t('bundle.packed'), 'success')
+  } catch (error) {
+    reportError(error)
+  } finally {
+    archiving.value = false
+  }
+}
+
+/**
+ * Take up the inventory a restore has just written into.
+ *
+ * The whole table is read again rather than patched: a restore creates events, and the declarations that
+ * decide what columns there are, so what changed is not a set of rows but what a row is.
+ */
+const onRestored = async (): Promise<void> => {
+  try {
+    await controller.refreshConfiguration()
+    await controller.refreshRows()
   } catch (error) {
     reportError(error)
   }
@@ -574,11 +630,11 @@ const onExport = async (choice: ExportChoice): Promise<void> => {
 const onDownloadFiles = async (selectionOnly: boolean): Promise<void> => {
   const picked = selectionOnly ? selectedIds.value : []
   archiving.value = true
-  notify('The archive is being packed, this can take a while', 'info')
+  notify(t('inventory.packing'), 'info')
   try {
     const archive = await downloadEventFiles(buildExportRequest(controller, visibleColumns.value, picked))
     downloadBlob(archive.blob, archive.name)
-    notify('The archive was downloaded', 'success')
+    notify(t('inventory.packed'), 'success')
   } catch (error) {
     reportError(error)
   } finally {

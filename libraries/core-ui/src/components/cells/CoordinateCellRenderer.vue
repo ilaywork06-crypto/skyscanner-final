@@ -64,10 +64,14 @@ interface Props {
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../../composables/useLanguage'
+
 import { computed, ref } from 'vue'
 
 import CoordinateField from '../../components/CoordinateField.vue'
 import { formatCoordinate, toCoordinate } from '../../utils/coordinates'
+
+const { t } = useLanguage()
 
 const props = defineProps<Props>()
 
@@ -75,7 +79,7 @@ const dialog = ref<boolean>(false)
 
 const point = computed<Coordinate | null>(() => toCoordinate(props.params.value ?? null))
 
-const headerName = computed<string>(() => props.params.colDef?.headerName ?? 'Coordinate')
+const headerName = computed<string>(() => props.params.colDef?.headerName ?? t('value.coordinate'))
 </script>
 
 <style scoped>

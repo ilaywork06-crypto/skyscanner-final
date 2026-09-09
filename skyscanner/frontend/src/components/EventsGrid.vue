@@ -7,6 +7,7 @@
   >
     <AgGridVue
       v-if="gridOptions !== null"
+      :key="languageKey"
       class="events-grid__table"
       :grid-options="gridOptions"
       :column-defs="columnDefs"
@@ -175,7 +176,15 @@ import {
 import { AgGridVue } from 'ag-grid-vue3'
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 
-import { buildGridTheme, useAppTheme, useCellRenderers, useColumnFilters } from '@truth-platform/core-ui'
+import {
+  buildGridTheme,
+  gridIsRtl,
+  gridLanguageKey,
+  gridLocaleText,
+  useAppTheme,
+  useCellRenderers,
+  useColumnFilters,
+} from '@truth-platform/core-ui'
 
 import DetailRowRenderer from '@/components/cells/DetailRowRenderer.vue'
 import EventLinkCellRenderer from '@/components/cells/EventLinkCellRenderer.vue'
@@ -210,6 +219,12 @@ const context = computed<InventoryGridContext>(() => ({
   expandedIds: props.expandedIds,
   toggleExpanded: (rowId: string) => emit('toggle-expanded', rowId),
   openRow: (rowId: string) => emit('open-event', rowId),
+  /*
+   * A panel narrows the very table it is open inside, through the same road a quick filter takes: the
+   * column's own filter model. Written anywhere else, the pills above the table and the filter in the
+   * header would disagree about what is being shown.
+   */
+  filterBy: (colId: string, values: string[]) => setColumnFilterValues(colId, values),
   tokenFor: paletteToken,
   openArtifact: (artifact: Artifact) => emit('open-artifact', artifact),
   downloadArtifact: (artifact: Artifact) => emit('download', artifact),
@@ -325,6 +340,14 @@ const filterComponents = computed<Record<string, string>>(() => {
  */
 const gridTheme = computed(() => buildGridTheme(colors.value, isDark.value))
 
+/*
+ * A table is thrown away and built again when the language changes, because the direction it is laid out in
+ * is read once, when it builds itself, and never looked at again. Everything else about a language change
+ * is reactive; this one is not, and keying the component is what turns a change AG Grid cannot make into
+ * one Vue makes for it.
+ */
+const languageKey = computed<string>(() => gridLanguageKey())
+
 const gridOptions = computed<GridOptions<GridRow> | null>(() => {
   if (props.configuration === null) {
     return null
@@ -337,11 +360,16 @@ const gridOptions = computed<GridOptions<GridRow> | null>(() => {
     registry,
     filters: filterRegistry,
     visibleColumns: props.visibleColumns,
+    /* The inventory exports and archives the rows that were ticked, so the ticks earn their column here. */
+    selectable: true,
   })
 
   return {
     ...options,
     domLayout: layoutOf(props.pinned),
+    /* Read once, at construction - which is what `languageKey` above rebuilds the whole table for. */
+    enableRtl: gridIsRtl(),
+    localeText: gridLocaleText(),
     suppressNoRowsOverlay: true,
     fullWidthCellRenderer: DetailRowRenderer,
     getRowHeight: (params) =>

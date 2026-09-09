@@ -7,7 +7,7 @@
       {{ label }}
     </p>
     <p class="dropzone__hint">
-      Multiple files are allowed, but the same file name only once
+      {{ t('files.dropzoneHint') }}
     </p>
 
     <div
@@ -25,7 +25,7 @@
       <span
         v-if="files.length === 0"
         class="dropzone__placeholder"
-      >Drag &amp; Drop Or Click</span>
+      >{{ t('files.dropzone') }}</span>
 
       <div
         v-else
@@ -46,7 +46,7 @@
             icon="mdi-close"
             size="x-small"
             variant="text"
-            :aria-label="`Remove ${file.name}`"
+            :aria-label="t('files.remove', { name: file.name })"
             @click.stop="remove(index)"
           />
         </span>
@@ -89,9 +89,12 @@ interface Emits {
 <script setup lang="ts">
 import { ref } from 'vue'
 
+import { useLanguage } from '../composables/useLanguage'
 import { formatBytes } from '../utils/format'
 
-const props = withDefaults(defineProps<Props>(), { label: 'Files' })
+const props = withDefaults(defineProps<Props>(), { label: '' })
+
+const { t } = useLanguage()
 const emit = defineEmits<Emits>()
 
 const picker = ref<HTMLInputElement | null>(null)

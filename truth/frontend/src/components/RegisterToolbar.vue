@@ -4,7 +4,7 @@
       <v-text-field
         :model-value="search"
         class="toolbar__field"
-        placeholder="Search"
+        :placeholder="t('register.searchPlaceholder')"
         prepend-inner-icon="mdi-magnify"
         clearable
         rounded="pill"
@@ -26,13 +26,13 @@
             class="toolbar__icon"
             icon="mdi-sort-variant"
             variant="tonal"
-            aria-label="Choose the columns"
-            title="Choose the columns"
+            :aria-label="t('register.chooseColumns')"
+            :title="t('register.chooseColumns')"
           />
         </template>
         <v-card class="toolbar__columns">
           <v-card-title class="toolbar__columns-title">
-            Columns
+            {{ t('register.columns') }}
           </v-card-title>
           <v-divider />
           <div class="toolbar__columns-list">
@@ -53,21 +53,55 @@
     <div class="toolbar__actions">
       <slot name="actions" />
 
+      <!--
+        Restoring a bundle is offered whatever the table currently holds - an empty register is exactly the
+        one a bundle is most often restored into.
+      -->
       <v-btn
         variant="tonal"
-        prepend-icon="mdi-download-outline"
-        :disabled="total === 0"
-        @click="emit('export')"
+        prepend-icon="mdi-upload-outline"
+        @click="emit('import')"
       >
-        Export
+        {{ t('register.import') }}
       </v-btn>
+
+      <!--
+        The two exports answer two different questions, so they are two entries rather than one button with
+        a format hidden inside it: one is the view somebody is looking at, written for a person to read, and
+        the other is the register itself, written to be read back in.
+      -->
+      <v-menu location="bottom end">
+        <template #activator="{ props: activator }">
+          <v-btn
+            v-bind="activator"
+            variant="tonal"
+            prepend-icon="mdi-download-outline"
+            :loading="exporting"
+          >
+            {{ t('register.export') }}
+          </v-btn>
+        </template>
+        <v-list density="compact">
+          <v-list-item
+            :title="t('register.exportSheet')"
+            prepend-icon="mdi-file-table-outline"
+            :disabled="total === 0"
+            @click="emit('export')"
+          />
+          <v-list-item
+            :title="t('register.exportBundle')"
+            prepend-icon="mdi-package-variant-closed"
+            @click="emit('export-bundle')"
+          />
+        </v-list>
+      </v-menu>
 
       <v-btn
         color="primary"
         prepend-icon="mdi-plus"
         @click="emit('create')"
       >
-        ASSUMPTION
+        {{ t('register.newAssumption') }}
       </v-btn>
     </div>
   </div>
@@ -81,6 +115,8 @@ interface Props {
   columns: GeneratedColumn[]
   hiddenColumns: string[]
   total: number
+  /** Whether a bundle is currently being gathered, which is one reading per row the register has not read. */
+  exporting?: boolean
 }
 
 interface Emits {
@@ -88,6 +124,8 @@ interface Emits {
   (event: 'toggle-column', colId: string, visible: boolean): void
   (event: 'create'): void
   (event: 'export'): void
+  (event: 'export-bundle'): void
+  (event: 'import'): void
 }
 
 /** The column that holds the chevron has no heading and nothing to choose, so it is never offered. */
@@ -95,10 +133,13 @@ const STRUCTURAL_COLUMNS: string[] = ['expand']
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '@truth-platform/core-ui'
 import { computed } from 'vue'
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), { exporting: false })
 const emit = defineEmits<Emits>()
+
+const { t } = useLanguage()
 
 const choosableColumns = computed<GeneratedColumn[]>(() =>
   props.columns.filter((column) => !STRUCTURAL_COLUMNS.includes(column.colId) && column.headerName.length > 0),

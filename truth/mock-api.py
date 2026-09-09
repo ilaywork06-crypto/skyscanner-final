@@ -10,6 +10,7 @@ The data lives in memory, so restarting it puts the register back the way it sta
     python3 truth/mock-api.py        # serves on http://localhost:8000
 """
 import json, os, re, uuid
+from urllib.parse import unquote
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -101,7 +102,10 @@ class H(BaseHTTPRequestHandler):
         if path == "/assumption": return self._send([summary(a) for a in ASSUMPTIONS][off:off+lim])
         m = re.match(r"^/(industry|schema|assumption)/(?:name/)?([^/]+)(?:/latest)?$", path)
         if m:
-            kind, key = m.group(1), m.group(2)
+            # The name is decoded before it is compared, because the client percent encodes it on the way
+            # out - which every name holding a space or a Hebrew letter does. Comparing the encoded form
+            # against the stored one made every such name unfindable, and only those.
+            kind, key = m.group(1), unquote(m.group(2))
             pool = {"industry": IND, "schema": SCHEMAS, "assumption": ASSUMPTIONS}[kind]
             for item in pool:
                 if item["id"] == key or item.get("name") == key: return self._send(item)
@@ -121,7 +125,11 @@ class H(BaseHTTPRequestHandler):
                 "scheme": {"fields": body["scheme"].get("fields", []),
                            "constraints": body["scheme"].get("constrains", [])}})
         elif self.path == "/assumption":
-            picked = [s for s in SCHEMAS if s["id"] in body.get("schemas", [])]
+            # A schema, like an industry, is named by its uuid or by its name - the payload documents both,
+            # so the stand-in accepts both. It used to take the uuid alone, which meant an assumption created
+            # against a name was created with no schema at all and said nothing about it.
+            picked = [s for s in SCHEMAS
+                      if s["id"] in body.get("schemas", []) or s["name"] in body.get("schemas", [])]
             inds = [i for i in IND if i["id"] in body.get("industries", []) or i["name"] in body.get("industries", [])]
             ASSUMPTIONS.insert(0, {"id": new_id, "name": body["name"],
                 "assumption_text": body["assumption_text"], "proposing_party": body["proposing_party"],

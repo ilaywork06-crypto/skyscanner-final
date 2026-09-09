@@ -40,6 +40,13 @@ class ColumnDefinition(BaseModel):
     col_id: str = Field(description="Stable identifier of the column")
     field: str = Field(description="Path of the value inside the row object")
     header_name: str = Field(description="Label rendered in the header cell")
+    # Spelled out rather than left to the camel case generator, which would turn `he` into a word of its own
+    # and hand the client `headerNameHe`. The client reads this by name, so the name is worth being readable.
+    header_name_he: str = Field(
+        default="",
+        alias="headerNameHebrew",
+        description="Label rendered in the header cell on a Hebrew page",
+    )
     sortable: bool = Field(default=True, description="Whether the column can be ordered by")
     filter: str | bool = Field(default=False, description="Name of the AG Grid filter component of the column")
     floating_filter: bool = Field(default=False, description="Whether a filter input is rendered under the header")

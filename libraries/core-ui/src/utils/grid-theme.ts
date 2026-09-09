@@ -34,7 +34,13 @@ const buildGridTheme = (colors: ThemeColors, isDark: boolean): Theme =>
     rowBorder: { style: 'solid', width: 1, color: readColor(colors, 'app-border') },
     wrapperBorder: false,
     wrapperBorderRadius: 12,
-    cellHorizontalPadding: 16,
+    /*
+     * A table of many columns spends this on every one of them, on every row on screen. Sixteen either side
+     * of a value is a quarter of a narrow column given to nothing, which is what turned a wide register into
+     * a page of gaps; the cells set their own padding on top of this, so this is the floor rather than the
+     * whole of it.
+     */
+    cellHorizontalPadding: 8,
     fontFamily: 'inherit',
     fontSize: 14,
   })

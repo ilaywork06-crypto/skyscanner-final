@@ -5,9 +5,9 @@
     <div class="sky-page__content">
       <div class="schema__heading">
         <v-btn
-          icon="mdi-chevron-left"
+          :icon="direction === 'rtl' ? 'mdi-chevron-right' : 'mdi-chevron-left'"
           variant="text"
-          aria-label="Back to the schemas"
+          :aria-label="t('schemas.back')"
           to="/schemas"
         />
         <h1 class="schema__title">
@@ -25,7 +25,7 @@
           prepend-icon="mdi-pencil-outline"
           @click="reviseOpen = true"
         >
-          Revise
+          {{ t('schemas.revise') }}
         </v-btn>
       </div>
 
@@ -95,7 +95,7 @@
 
         <v-card class="schema__card">
           <h2 class="schema__section">
-            Attributes
+            {{ t('schemas.attributes') }}
           </h2>
           <v-table
             v-if="scheme.fields.length > 0"
@@ -129,7 +129,7 @@
             v-else
             class="schema__muted"
           >
-            This schema declares no attributes.
+            {{ t('schemas.noAttributes') }}
           </p>
         </v-card>
       </template>
@@ -144,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { EMPTY_PLACEHOLDER, UiChip, formatDateTime, hashedToken } from '@truth-platform/core-ui'
+import { EMPTY_PLACEHOLDER, formatDateTime, hashedToken, UiChip, useLanguage } from '@truth-platform/core-ui'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -155,6 +155,8 @@ import type { SchemaDetail } from '@/models/schema'
 import type { Scheme, SchemeField } from '@/models/scheme'
 import { readLatestSchema } from '@/requests/schemas'
 import { readScheme } from '@/utils/scheme'
+
+const { t, direction } = useLanguage()
 
 const route = useRoute('/schemas/[id]')
 const { industries, load } = useRegister()

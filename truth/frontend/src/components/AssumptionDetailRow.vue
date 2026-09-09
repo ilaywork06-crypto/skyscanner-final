@@ -8,102 +8,172 @@
         v-if="row === undefined"
         class="detail-row__empty"
       >
-        This assumption is no longer on the page.
+        {{ t('detail.gone') }}
       </div>
 
       <template v-else>
-        <section class="detail-row__section">
-          <header class="detail-row__heading">
-            <h3 class="detail-row__title">
-              Industry details
-            </h3>
-            <UiChip
-              v-for="industry in industryNames"
-              :key="industry"
-              :label="industry"
-              :token="taxonomyToken(industry, taxonomy)"
+        <!--
+          The reading of an assumption is a request of its own and lands after the row it belongs to, so a panel
+          opened early says what it is waiting for instead of showing an assumption with no values.
+        -->
+        <div
+          v-if="row.complete !== true"
+          class="detail-row__loading"
+        >
+          <v-progress-circular
+            indeterminate
+            size="20"
+            width="2"
+            color="primary"
+          />
+          <span>{{ t('detail.reading') }}</span>
+        </div>
+
+        <template v-else>
+          <section class="detail-row__section">
+            <header class="detail-row__heading">
+              <h3 class="detail-row__title">
+                {{ t('detail.industryDetails') }}
+              </h3>
+              <UiChip
+                v-for="industry in industryNames"
+                :key="industry"
+                :label="industry"
+                :token="taxonomyToken(industry, taxonomy)"
+              />
+              <span
+                v-if="industryNames.length === 0"
+                class="detail-row__muted"
+              >
+                {{ t('detail.noIndustry') }}
+              </span>
+            </header>
+
+            <AttributesTable
+              v-if="valueColumns.length > 0"
+              :columns="valueColumns"
+              :row="row"
+              :taxonomy="taxonomy"
             />
-            <span
-              v-if="industryNames.length === 0"
+            <p
+              v-else
               class="detail-row__muted"
             >
-              This assumption is not filed under any industry.
-            </span>
-          </header>
+              {{ t('detail.noAttributes') }}
+            </p>
+          </section>
 
-          <AttributesTable
-            v-if="valueColumns.length > 0"
-            :columns="valueColumns"
-            :row="row"
-            :taxonomy="taxonomy"
-          />
-          <p
-            v-else
-            class="detail-row__muted"
-          >
-            The schemas of this assumption declare no attributes.
-          </p>
-        </section>
+          <section class="detail-row__section">
+            <header class="detail-row__heading">
+              <h3 class="detail-row__title">
+                {{ t('detail.validation') }}
+              </h3>
+            </header>
 
-        <section class="detail-row__section">
-          <header class="detail-row__heading">
-            <h3 class="detail-row__title">
-              Validation
-            </h3>
-          </header>
-
-          <!--
-              The API records who is responsible for validating an assumption but stores no validations
-              themselves, so this is what the register actually knows about the validation of a row.
+            <!--
+              Every party this assumption is validated by, as a list that can be searched and picked from.
+              A panel is where a reader finally sees what a row is filed under, and the question they ask
+              next is "show me the others like this" - so each of them narrows the register to itself, and
+              a row validated by more parties than can be read at a glance gets a box to find one in.
             -->
-          <div class="detail-row__facts">
             <div
-              v-for="fact in validationFacts"
-              :key="fact.label"
-              class="detail-row__fact"
+              v-if="validations.length > 0"
+              class="detail-row__validations"
             >
-              <span class="detail-row__label">{{ fact.label }}</span>
-              <div
-                v-if="fact.values.length > 0"
-                class="detail-row__values"
-              >
-                <UiChip
-                  v-for="value in fact.values"
-                  :key="value"
-                  :label="value"
-                  :token="fact.token ?? taxonomyToken(value, taxonomy)"
-                />
-              </div>
-              <span
-                v-else-if="fact.text.length > 0"
-                class="detail-row__text"
-              >{{ fact.text }}</span>
-              <span
-                v-else
-                class="detail-row__muted"
-              >{{ EMPTY_PLACEHOLDER }}</span>
-            </div>
-          </div>
-        </section>
+              <v-text-field
+                v-if="validations.length >= SEARCHABLE_FROM"
+                v-model="validationTerm"
+                :placeholder="t('detail.searchValidations')"
+                prepend-inner-icon="mdi-magnify"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+              />
 
-        <div class="detail-row__actions">
-          <v-btn
-            variant="text"
-            size="small"
-            prepend-icon="mdi-open-in-new"
-            @click="open"
-          >
-            Open assumption
-          </v-btn>
-          <v-btn
-            variant="text"
-            size="small"
-            prepend-icon="mdi-chevron-up"
-            @click="collapse"
-          >
-            Collapse
-          </v-btn>
-        </div>
+              <div class="detail-row__validation-list">
+                <button
+                  v-for="party in matchingValidations"
+                  :key="party"
+                  type="button"
+                  class="detail-row__validation"
+                  :class="{ 'detail-row__validation--active': isNarrowedTo(party) }"
+                  :title="t('detail.filterByValidation', { party })"
+                  dir="auto"
+                  @click.stop="toggleValidation(party)"
+                >
+                  <v-icon
+                    size="x-small"
+                    :icon="isNarrowedTo(party) ? 'mdi-filter' : 'mdi-filter-outline'"
+                  />
+                  <span class="detail-row__validation-label">{{ party }}</span>
+                </button>
+
+                <p
+                  v-if="matchingValidations.length === 0"
+                  class="detail-row__muted"
+                >
+                  {{ t('filters.noMatch', { term: validationTerm ?? '' }) }}
+                </p>
+              </div>
+            </div>
+
+            <p
+              v-else
+              class="detail-row__muted"
+            >
+              {{ t('detail.noValidations') }}
+            </p>
+
+            <div class="detail-row__facts">
+              <div
+                v-for="fact in validationFacts"
+                :key="fact.label"
+                class="detail-row__fact"
+              >
+                <span class="detail-row__label">{{ fact.label }}</span>
+                <div
+                  v-if="fact.values.length > 0"
+                  class="detail-row__values"
+                >
+                  <UiChip
+                    v-for="value in fact.values"
+                    :key="value"
+                    :label="value"
+                    :token="fact.token ?? taxonomyToken(value, taxonomy)"
+                  />
+                </div>
+                <span
+                  v-else-if="fact.text.length > 0"
+                  class="detail-row__text"
+                >{{ fact.text }}</span>
+                <span
+                  v-else
+                  class="detail-row__muted"
+                >{{ EMPTY_PLACEHOLDER }}</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="detail-row__actions">
+            <v-btn
+              variant="text"
+              size="small"
+              prepend-icon="mdi-open-in-new"
+              @click="open"
+            >
+              {{ t('detail.open') }}
+            </v-btn>
+            <v-btn
+              variant="text"
+              size="small"
+              prepend-icon="mdi-chevron-up"
+              @click="collapse"
+            >
+              {{ t('detail.collapse') }}
+            </v-btn>
+          </div>
+        </template>
       </template>
     </div>
   </div>
@@ -118,6 +188,12 @@ import type { AssumptionGridContext } from '@/components/AssumptionsGrid.vue'
 interface Props {
   params: ICellRendererParams<GridRow>
 }
+
+/** Past this many parties the list is one a reader searches rather than one they simply read. */
+const SEARCHABLE_FROM = 6
+
+/** The column the validation parties are narrowed through, which is the one the table shows them in. */
+const VALIDATION_COLUMN = 'validation_responsible_parties'
 
 /** One thing the register knows about the validation of an assumption. */
 interface ValidationFact {
@@ -137,12 +213,16 @@ import {
   provideSearchTerm,
   readContext,
   taxonomyToken,
+  useLanguage,
 } from '@truth-platform/core-ui'
 import { computed, onBeforeUnmount, onMounted, ref, toRef } from 'vue'
 
+import { narrowedValues } from '@/composables/useAssumptionsGrid'
 import { useRegister } from '@/composables/useRegister'
 
 const props = defineProps<Props>()
+
+const { t } = useLanguage()
 
 const content = ref<HTMLElement | null>(null)
 
@@ -192,32 +272,81 @@ const readList = (key: string): string[] => {
   return Array.isArray(value) ? value.map((item) => String(item)) : []
 }
 
+const validationTerm = ref<string>('')
+
+/** Every party this assumption is validated by, which is what the list is drawn from. */
+const validations = computed<string[]>(() => readList(VALIDATION_COLUMN))
+
+const matchingValidations = computed<string[]>(() => {
+  const needle = (validationTerm.value ?? '').trim().toLowerCase()
+  if (needle.length === 0) {
+    return validations.value
+  }
+
+  return validations.value.filter((party) => party.toLowerCase().includes(needle))
+})
+
+/*
+ * Which parties the table is currently narrowed to. Read off the conditions the table is actually running
+ * rather than remembered here, so an entry marked in this panel and the chip above the table can never
+ * disagree - lifting the chip unmarks the entry, and there is only one place the answer lives.
+ */
+const narrowedTo = computed<string[]>(() => narrowedValues(VALIDATION_COLUMN))
+
+/** Whether the table is currently narrowed to one party, which is what its entry is marked by. */
+const isNarrowedTo = (party: string): boolean => narrowedTo.value.includes(party)
+
+/**
+ * Narrow the register to one validating party, or lift that narrowing when it is already the one in force.
+ *
+ * Picking a second party widens the narrowing to both rather than replacing the first, because a filter
+ * over a list of values is a question about any of them - which is the same thing the column's own filter
+ * does when two values are ticked in it.
+ */
+const toggleValidation = (party: string) => {
+  const current = narrowedTo.value
+  const next = current.includes(party)
+    ? current.filter((candidate) => candidate !== party)
+    : [...current, party]
+
+  context.value.filterBy(VALIDATION_COLUMN, next)
+}
+
 const validationFacts = computed<ValidationFact[]>(() => [
   {
-    label: 'Responsible parties',
+    label: t('detail.responsible'),
     values: readList('validation_responsible_parties'),
     text: '',
   },
   {
-    label: 'Proposed by',
+    label: t('column.proposingParty'),
     values: [],
     text: String(row.value?.proposing_party ?? ''),
   },
   {
-    label: 'Revision',
+    label: t('column.revision'),
     values: [],
     text: `${String(row.value?.revision ?? 0)}${
       String(row.value?.revision_reason ?? '').length > 0 ? ` — ${String(row.value?.revision_reason)}` : ''
     }`,
   },
   {
-    label: 'Created',
+    label: t('column.createdAt'),
     values: [],
-    text: `${formatDateTime(String(row.value?.created_at ?? ''))} by ${String(row.value?.creator ?? '')}`,
+    text: t('detail.createdBy', {
+      moment: formatDateTime(String(row.value?.created_at ?? '')),
+      creator: String(row.value?.creator ?? ''),
+    }),
   },
   {
-    label: 'State',
-    values: [row.value?.deleted === true ? 'Deleted' : row.value?.archived === true ? 'Archived' : 'Active'],
+    label: t('detail.state'),
+    values: [
+      row.value?.deleted === true
+        ? t('detail.removed')
+        : row.value?.archived === true
+          ? t('detail.archived')
+          : t('detail.active'),
+    ],
     text: '',
     token: row.value?.deleted === true || row.value?.archived === true ? 'status-negative' : 'status-positive',
   },
@@ -303,6 +432,13 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.detail-row__loading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: rgb(var(--v-theme-app-muted));
+  font-size: 0.875rem;
+}
 
 .detail-row__empty,
 .detail-row__muted {
@@ -314,6 +450,59 @@ onBeforeUnmount(() => {
  * The facts are laid out in as many columns as the panel has room for rather than in a fixed number, so the
  * panel reads as one line on a narrow window and as a row of them on a wide one.
  */
+/*
+ * The validations of a row, as a list that is picked from rather than only read. Each entry is a control,
+ * so it reads as one: a filter mark, the name, and a background once the table is actually narrowed to it.
+ */
+.detail-row__validations {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-inline-size: 28rem;
+}
+
+.detail-row__validation-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  max-block-size: 11rem;
+  overflow-y: auto;
+}
+
+.detail-row__validation {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 0.0625rem solid rgb(var(--v-theme-control-border));
+  border-radius: 999rem;
+  background-color: rgb(var(--v-theme-control-surface));
+  color: rgb(var(--v-theme-on-surface));
+  padding-inline: 0.625rem;
+  padding-block: 0.25rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  max-inline-size: 100%;
+}
+
+.detail-row__validation:hover {
+  background-color: rgb(var(--v-theme-control-surface-hover));
+}
+
+/* An entry the table is already narrowed to is marked as one, so a second press reads as lifting it. */
+.detail-row__validation--active {
+  border-color: rgba(var(--v-theme-primary), 0.55);
+  background-color: rgba(var(--v-theme-primary), 0.14);
+  color: rgb(var(--v-theme-primary));
+  font-weight: 600;
+}
+
+.detail-row__validation-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .detail-row__facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));

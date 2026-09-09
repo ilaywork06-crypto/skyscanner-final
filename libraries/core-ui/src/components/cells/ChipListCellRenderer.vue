@@ -105,6 +105,8 @@ const VISIBLE_LIMIT = 3
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../../composables/useLanguage'
+
 import { computed, ref } from 'vue'
 
 import HighlightedText from '../../components/HighlightedText.vue'
@@ -112,6 +114,8 @@ import { readContext } from '../../utils/grid-context'
 import { taxonomyToken } from '../../utils/palette'
 import { matchesTerm } from '../../utils/highlight'
 import { toBulletedText } from '../../utils/notes'
+
+const { t } = useLanguage()
 
 const props = defineProps<Props>()
 
@@ -153,7 +157,7 @@ const bullets = computed<string>(() => toBulletedText(values.value))
 
 const search = computed<string>(() => readContext(props.params).search)
 
-const headerName = computed<string>(() => props.params.colDef?.headerName ?? 'Value')
+const headerName = computed<string>(() => props.params.colDef?.headerName ?? t('value.title'))
 
 const isMatch = (value: string): boolean => matchesTerm(value, search.value)
 

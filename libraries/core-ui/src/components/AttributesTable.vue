@@ -28,12 +28,13 @@
           v-for="column in columns"
           :key="`head-${column.colId}`"
           class="attributes-table__cell attributes-table__cell--head"
+          dir="auto"
         >
           {{ column.headerName }}
           <span
             v-if="column.discovered"
             class="attributes-table__origin"
-          >not declared</span>
+          >{{ t('attributes.notDeclared') }}</span>
         </div>
         <div
           v-for="column in columns"
@@ -55,7 +56,7 @@
       v-else
       class="attributes-table__empty"
     >
-      {{ emptyText }}
+      {{ emptyText.length > 0 ? emptyText : t('attributes.empty') }}
     </p>
   </div>
 </template>
@@ -87,12 +88,15 @@ const MIN_COLUMN_WIDTH = '11rem'
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { useLanguage } from '../composables/useLanguage'
 import DynamicCell from './DynamicCell.vue'
+
+const { t } = useLanguage()
 
 const props = withDefaults(defineProps<Props>(), {
   taxonomy: () => [],
   title: '',
-  emptyText: 'Nothing was recorded here yet.',
+  emptyText: '',
 })
 const emit = defineEmits<Emits>()
 

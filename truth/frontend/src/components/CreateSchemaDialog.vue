@@ -7,7 +7,7 @@
     @update:model-value="close"
   >
     <v-card>
-      <v-card-title>{{ revisedSchema === null ? 'Declare a schema' : `Revise ${revisedSchema.name}` }}</v-card-title>
+      <v-card-title>{{ revisedSchema === null ? t('schemas.declare') : t('schemas.reviseNamed', { name: revisedSchema.name }) }}</v-card-title>
 
       <v-card-text class="schema-form">
         <template v-if="revisedSchema === null">
@@ -19,7 +19,7 @@
             <v-text-field
               id="schema-name"
               v-model="name"
-              placeholder="What the schema is called"
+              :placeholder="t('schemas.namePlaceholder')"
             />
           </div>
 
@@ -31,7 +31,7 @@
             <v-textarea
               id="schema-description"
               v-model="description"
-              placeholder="What it declares and when to use it…"
+              :placeholder="t('schemas.descriptionPlaceholder')"
               rows="2"
               auto-grow
             />
@@ -49,7 +49,7 @@
           <v-text-field
             id="schema-reason"
             v-model="revisionReason"
-            placeholder="Why the declaration is being changed"
+            :placeholder="t('schemas.reasonPlaceholder')"
           />
         </div>
 
@@ -84,7 +84,7 @@
           variant="text"
           @click="close"
         >
-          Cancel
+          {{ t('identity.cancel') }}
         </v-btn>
         <v-btn
           color="primary"
@@ -92,7 +92,7 @@
           :disabled="!canSave"
           @click="save"
         >
-          {{ revisedSchema === null ? 'Create' : 'Revise' }}
+          {{ revisedSchema === null ? t('create.create') : t('schemas.revise') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -118,7 +118,7 @@ const DEFAULT_SCHEMA_TYPE = 0
 </script>
 
 <script setup lang="ts">
-import { useSnackbar } from '@truth-platform/core-ui'
+import { useLanguage, useSnackbar } from '@truth-platform/core-ui'
 import { computed, ref, watch } from 'vue'
 
 import SchemeBuilder from '@/components/SchemeBuilder.vue'
@@ -129,6 +129,8 @@ import { readScheme, writeScheme } from '@/utils/scheme'
 
 const props = withDefaults(defineProps<Props>(), { revisedSchema: null })
 const emit = defineEmits<Emits>()
+
+const { t } = useLanguage()
 
 const { notify, reportError } = useSnackbar()
 

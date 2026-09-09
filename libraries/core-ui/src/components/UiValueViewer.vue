@@ -11,20 +11,20 @@
   >
     <v-card class="value-viewer">
       <v-card-title class="value-viewer__title">
-        <span>{{ title }}</span>
+        <span>{{ title.length > 0 ? title : t('value.title') }}</span>
         <v-spacer />
         <v-btn
           icon="mdi-content-copy"
           variant="text"
           density="comfortable"
-          aria-label="Copy the value"
+          :aria-label="t('value.copy')"
           @click="copy"
         />
         <v-btn
           icon="mdi-close"
           variant="text"
           density="comfortable"
-          aria-label="Close"
+          :aria-label="t('common.close')"
           @click="close"
         />
       </v-card-title>
@@ -38,6 +38,7 @@
         <pre
           class="value-viewer__content"
           :class="{ 'value-viewer__content--code': monospace }"
+          dir="auto"
         ><UiLinkedText :text="value" /></pre>
       </v-card-text>
     </v-card>
@@ -59,9 +60,12 @@ interface Emits {
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../composables/useLanguage'
 import UiLinkedText from './UiLinkedText.vue'
 
-const props = withDefaults(defineProps<Props>(), { title: 'Value', monospace: false })
+const props = withDefaults(defineProps<Props>(), { title: '', monospace: false })
+
+const { t } = useLanguage()
 const emit = defineEmits<Emits>()
 
 const close = () => {

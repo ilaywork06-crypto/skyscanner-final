@@ -9,10 +9,10 @@
  */
 
 import type { FieldType, GeneratedColumn, GeneratedGridConfiguration } from '@truth-platform/core-ui'
-import { humanizeKey } from '@truth-platform/core-ui'
+import { language, translate } from '@truth-platform/core-ui'
 
 import type { SchemeField } from '@/models/scheme'
-import { renderType } from '@/utils/scheme'
+import { fieldLabel, renderType } from '@/utils/scheme'
 
 /** Where a schema declared value sits inside the flattened row. */
 const VALUE_PREFIX = 'values'
@@ -49,6 +49,12 @@ const TYPE_FILTERS: Record<FieldType, string> = {
 
 /** What every column carries unless it says otherwise, so that each definition below states only its own part. */
 const COLUMN_DEFAULTS = {
+  /*
+   * The columns of this table are already built in whichever language the interface is written in - the
+   * fixed ones out of the dictionary, the declared ones out of the declaration - so there is no second
+   * name to fall back to and the shared header swap has nothing to do here.
+   */
+  headerNameHebrew: '',
   sortable: true,
   floatingFilter: false,
   resizable: true,
@@ -60,6 +66,7 @@ const COLUMN_DEFAULTS = {
   headerClass: null,
   cellClass: 'sky-cell',
   autoHeight: false,
+  wrapText: false,
   dynamic: false,
   discovered: false,
   industry: null,
@@ -76,12 +83,21 @@ interface ColumnInput {
   flex?: number
   /** A fixed width, for the narrow columns that would otherwise be stretched by a share of the room. */
   width?: number
+  /**
+   * The side of the table the column is held against while the rest of it scrolls, or nothing to scroll.
+   *
+   * Written as `left` in both directions, which is what AG Grid calls the side a reader starts from: a
+   * right to left table pins it to the right, because that is where reading begins there.
+   */
+  pinned?: string
   minWidth: number
   renderer?: string
   filter?: string | false
   params?: Record<string, string | number | boolean | null>
   sortable?: boolean
   autoHeight?: boolean
+  /** Whether a value too long for one line is wrapped onto several rather than cut short with an ellipsis. */
+  wrapText?: boolean
   quickFilter?: boolean
   dynamic?: boolean
   cellClass?: string
@@ -99,10 +115,13 @@ const toColumn = (input: ColumnInput): GeneratedColumn => ({
   filter: input.filter ?? TYPE_FILTERS[input.type],
   flex: input.flex ?? null,
   width: input.width ?? null,
+  pinned: input.pinned ?? COLUMN_DEFAULTS.pinned,
   minWidth: input.minWidth,
   cellRenderer: input.renderer ?? TYPE_RENDERERS[input.type],
   cellRendererParams: input.params ?? {},
   autoHeight: input.autoHeight ?? COLUMN_DEFAULTS.autoHeight,
+  /* Wrapping without a row free to grow writes the extra lines behind the row below, so the two travel together. */
+  wrapText: input.wrapText ?? COLUMN_DEFAULTS.wrapText,
   fieldType: input.type,
   dynamic: input.dynamic ?? COLUMN_DEFAULTS.dynamic,
   quickFilter: input.quickFilter ?? COLUMN_DEFAULTS.quickFilter,
@@ -127,21 +146,51 @@ const fixedColumns = (): GeneratedColumn[] => [
     renderer: 'ExpandCellRenderer',
     filter: false,
     sortable: false,
+    pinned: 'left',
     cellClass: 'sky-cell truth-cell--expand',
   }),
-  toColumn({ colId: 'name', field: 'name', headerName: 'Name', type: 'string', flex: 2, minWidth: 180 }),
+  /*
+   * The three columns that say which row this is are held against the side of the table while the rest of it
+   * scrolls underneath them. A register grows a column per declared attribute, so a wide one is scrolled
+   * sideways as a matter of course - and a value read halfway along it means nothing without the assumption
+   * it belongs to still being on screen.
+   *
+   * They are pinned as a block rather than the assumption alone, because a pinned column is moved to the
+   * side of the table whether it was there or not: pinning only the assumption would reorder the head of
+   * every row. A pinned column also takes no share of the leftover room, so these three carry widths of
+   * their own rather than the flex the scrolling columns share.
+   */
+  toColumn({
+    colId: 'name',
+    field: 'name',
+    headerName: translate('column.name'),
+    type: 'string',
+    width: 200,
+    minWidth: 140,
+    pinned: 'left',
+    autoHeight: true,
+    wrapText: true,
+  }),
+  /*
+   * The assumption itself is a sentence rather than a label, so it is the one column that is read rather
+   * than scanned - it wraps onto as many lines as it takes and the row grows with it. Cutting it short with
+   * an ellipsis meant the one column somebody opened the register for was the one they could not read.
+   */
   toColumn({
     colId: 'assumption_text',
     field: 'assumption_text',
-    headerName: 'Assumption',
+    headerName: translate('column.assumptionText'),
     type: 'text',
-    flex: 3,
-    minWidth: 240,
+    width: 340,
+    minWidth: 220,
+    pinned: 'left',
+    autoHeight: true,
+    wrapText: true,
   }),
   toColumn({
     colId: 'industries',
     field: 'industries',
-    headerName: 'Industry',
+    headerName: translate('column.industry'),
     type: 'enum',
     flex: 2,
     minWidth: 160,
@@ -153,7 +202,7 @@ const fixedColumns = (): GeneratedColumn[] => [
   toColumn({
     colId: 'schemas',
     field: 'schemas',
-    headerName: 'Schemas',
+    headerName: translate('column.schemas'),
     type: 'enum',
     flex: 2,
     minWidth: 160,
@@ -166,7 +215,7 @@ const fixedColumns = (): GeneratedColumn[] => [
   toColumn({
     colId: 'proposing_party',
     field: 'proposing_party',
-    headerName: 'Proposing party',
+    headerName: translate('column.proposingParty'),
     type: 'string',
     flex: 1,
     minWidth: 150,
@@ -177,7 +226,7 @@ const fixedColumns = (): GeneratedColumn[] => [
   toColumn({
     colId: 'validation_responsible_parties',
     field: 'validation_responsible_parties',
-    headerName: 'Validation by',
+    headerName: translate('column.validationBy'),
     type: 'enum',
     flex: 2,
     minWidth: 170,
@@ -188,7 +237,7 @@ const fixedColumns = (): GeneratedColumn[] => [
   toColumn({
     colId: 'tags',
     field: 'tags',
-    headerName: 'Tags',
+    headerName: translate('column.tags'),
     type: 'enum',
     flex: 2,
     minWidth: 150,
@@ -200,7 +249,7 @@ const fixedColumns = (): GeneratedColumn[] => [
   toColumn({
     colId: 'revision',
     field: 'revision',
-    headerName: 'Rev',
+    headerName: translate('column.revision'),
     type: 'integer',
     width: 90,
     minWidth: 80,
@@ -208,7 +257,7 @@ const fixedColumns = (): GeneratedColumn[] => [
   toColumn({
     colId: 'creator',
     field: 'creator',
-    headerName: 'Creator',
+    headerName: translate('column.creator'),
     type: 'string',
     flex: 1,
     minWidth: 140,
@@ -219,7 +268,7 @@ const fixedColumns = (): GeneratedColumn[] => [
   toColumn({
     colId: 'created_at',
     field: 'created_at',
-    headerName: 'Created at',
+    headerName: translate('column.createdAt'),
     type: 'datetime',
     flex: 1,
     minWidth: 170,
@@ -237,13 +286,19 @@ const fieldColumn = (field: SchemeField): GeneratedColumn => {
   return toColumn({
     colId: field.key,
     field: `${VALUE_PREFIX}.${field.key}`,
-    headerName: field.displayName.length > 0 ? field.displayName : humanizeKey(field.key),
+    headerName: fieldLabel(field),
     type: rendered,
     flex: 1,
     minWidth: 140,
     renderer: field.array ? 'ChipListCellRenderer' : TYPE_RENDERERS[rendered],
     filter: field.array || rendered === 'enum' ? 'SetColumnFilter' : TYPE_FILTERS[rendered],
-    autoHeight: field.array,
+    /*
+     * A declared attribute that holds text is read rather than scanned, exactly as the assumption is, so it
+     * wraps as well. The numbers, the dates and the flags are short by construction and gain nothing from a
+     * second line, so they stay on one and the row is not made taller for them.
+     */
+    autoHeight: field.array || rendered === 'string',
+    wrapText: !field.array && rendered === 'string',
     quickFilter: rendered === 'enum' && !field.array,
     dynamic: true,
   })
@@ -258,13 +313,18 @@ const buildConfiguration = (fields: SchemeField[]): GeneratedGridConfiguration =
   columns: [...fixedColumns(), ...fields.map((field) => fieldColumn(field))],
   defaultSort: [{ key: 'created_at', direction: 'desc' }],
   quickFilterKeys: ['proposing_party', 'creator', 'tags'],
-  rowHeight: 48,
-  headerHeight: 44,
+  /*
+   * The floor a row of one line short values falls back to. It is no longer what every row is: the table
+   * sizes each of them from the tallest cell in it, so a wrapped assumption is as tall as it needs and a
+   * row of labels is this.
+   */
+  rowHeight: 40,
+  headerHeight: 38,
   /*
    * The version changes whenever the declared attributes change, which is what tells a table already on
    * screen that its columns have to be rebuilt rather than merely refilled.
    */
-  version: `assumption:${fields.map((field) => `${field.key}:${field.type}`).join(',')}`,
+  version: `assumption:${language.value}:${fields.map((field) => `${field.key}:${field.type}`).join(',')}`,
 })
 
 export { TYPE_FILTERS, TYPE_RENDERERS, VALUE_PREFIX, buildConfiguration, fieldColumn, fixedColumns }

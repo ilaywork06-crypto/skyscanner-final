@@ -14,7 +14,7 @@ from ag_grid_lib.introspection import SchemaIntrospector
 from skyscanner_common.errors import PermissionDeniedError
 from skyscanner_common.identity import build_user_context
 from skyscanner_common.mongo import MongoProvider
-from skyscanner_common.settings import get_auth_settings
+from skyscanner_common.settings import get_auth_settings, get_service_settings
 from skyscanner_models.common import UserContext
 from skyscanner_models.enums import Permission
 
@@ -32,6 +32,7 @@ from events_service.repositories.platform_repository import PlatformRepository
 from events_service.repositories.type_repository import TypeRepository
 from events_service.services.entity_service import EntityService
 from events_service.services.event_service import EventService
+from events_service.services.bundle_service import BundleService
 from events_service.services.export_service import ExportService
 from events_service.services.field_service import FieldService
 from events_service.services.grid_service import GridService
@@ -41,6 +42,7 @@ from events_service.services.industry_service import IndustryService
 from events_service.services.template_service import TemplateService
 from events_service.services.platform_service import PlatformService
 from events_service.services.rename_service import RenameService
+from events_service.services.storage_client import StorageClient
 from events_service.services.type_service import TypeService
 
 # ----- FUNCTIONS ----- #
@@ -419,8 +421,43 @@ def get_export_service(repository: EventRepositoryDependency) -> ExportService:
     return ExportService(repository=repository)
 
 
+def get_bundle_service(
+    events: EventRepositoryDependency,
+    industries: IndustryRepositoryDependency,
+    types: TypeRepositoryDependency,
+    platforms: PlatformRepositoryDependency,
+    fields: FieldRepositoryDependency,
+    counters: CounterRepositoryDependency,
+) -> BundleService:
+    """
+    Build the owner of the bundle for one request.
+
+    A bundle spans every collection an event points at, which is why this takes so many of them: an event
+    restored without its industry, its types, its platforms and its fields is a row in a table rather than
+    an event in an inventory.
+
+    :param events: Persistence of the events.
+    :param industries: Persistence of the industries.
+    :param types: Persistence of the event and entity type declarations.
+    :param platforms: Persistence of the platform declarations.
+    :param fields: Persistence of the dynamic field declarations.
+    :param counters: Keeper of the running event number.
+    :return: The service that owns the bundle.
+    """
+    return BundleService(
+        events=events,
+        industries=industries,
+        types=types,
+        platforms=platforms,
+        fields=fields,
+        counters=counters,
+        storage=StorageClient(settings=get_service_settings(), auth=get_auth_settings()),
+    )
+
+
 EventServiceDependency = Annotated[EventService, Depends(get_event_service)]
 GridServiceDependency = Annotated[GridService, Depends(get_grid_service)]
 TemplateServiceDependency = Annotated[TemplateService, Depends(get_template_service)]
 SubscriptionServiceDependency = Annotated[SubscriptionService, Depends(get_subscription_service)]
 ExportServiceDependency = Annotated[ExportService, Depends(get_export_service)]
+BundleServiceDependency = Annotated[BundleService, Depends(get_bundle_service)]

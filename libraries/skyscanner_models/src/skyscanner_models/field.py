@@ -61,6 +61,10 @@ class FieldMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     allowed_file_types: list[str] = Field(default_factory=list, description="Suffixes accepted by a file field")
+    # What the field is called when the interface is read in Hebrew. A field that carries none keeps the name
+    # it was declared under in both languages: that name is the vocabulary of whoever declared it rather than
+    # a word this system ships, so there is nowhere else a Hebrew one could honestly come from.
+    name_he: str | None = Field(default=None, description="Label shown for the field on a Hebrew page")
     options: list[str] = Field(default_factory=list, description="Allowed values of an enum field")
     unit: str | None = Field(default=None, description="Physical unit appended to a numeric value")
     description: str | None = Field(default=None, description="Helper text shown next to the input")

@@ -42,20 +42,30 @@ interface Emits {
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { useLanguage } from '../composables/useLanguage'
+
 const PAGE_SIZES: number[] = [10, 25, 50, 100]
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
+const { t } = useLanguage()
+
+/*
+ * What the bar says it is counting is a phrase rather than a sentence built here, because the two are not
+ * the same sentence in Hebrew: the numbers of a range read left to right inside a line that reads right to
+ * left, so where they sit in the sentence is part of the translation rather than of the layout. A product
+ * that counts something other than rows re-registers these two keys and says so in both languages.
+ */
 const rangeLabel = computed<string>(() => {
   if (props.total === 0) {
-    return 'No events'
+    return t('pagination.empty')
   }
 
   const first = (props.page - 1) * props.pageSize + 1
   const last = Math.min(props.page * props.pageSize, props.total)
 
-  return `${first} – ${last} of ${props.total} events`
+  return t('pagination.range', { first, last, total: props.total })
 })
 </script>
 

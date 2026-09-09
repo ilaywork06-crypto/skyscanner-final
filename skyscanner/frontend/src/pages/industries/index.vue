@@ -151,7 +151,7 @@
               size="x-small"
               icon="mdi-keyboard-return"
             />
-            {{ ENTER_TO_ADD_HINT }}
+            {{ t('input.enterToAdd') }}
           </p>
         </v-card-text>
         <v-card-actions>
@@ -178,7 +178,7 @@
 
 <script lang="ts">
 import type { Industry } from '@/models/industry'
-import { UiChip, slugify } from '@truth-platform/core-ui'
+import { slugify, UiChip, useLanguage } from '@truth-platform/core-ui'
 import { CHIP_COLOUR_NAMES, CHIP_PALETTE, taxonomyToken } from '@truth-platform/core-ui'
 
 interface ColorItem {
@@ -204,7 +204,8 @@ import AppHeader from '@/components/AppHeader.vue'
 import { useIndustries } from '@/composables/useIndustries'
 import { useSnackbar } from '@truth-platform/core-ui'
 import { createIndustry, updateIndustry } from '@/requests/schema'
-import { ENTER_TO_ADD_HINT } from '@truth-platform/core-ui'
+
+const { t } = useLanguage()
 
 const { industries, loading, load } = useIndustries()
 const { notify, reportError } = useSnackbar()

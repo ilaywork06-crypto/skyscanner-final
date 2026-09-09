@@ -38,6 +38,10 @@ class BaseColumnSpec(BaseModel):
     col_id: str = Field(description="Stable identifier of the column")
     field: str = Field(description="Path of the value inside the row object")
     header_name: str = Field(description="Label rendered in the header cell")
+    # What the column is called on a Hebrew page. Written down beside the English rather than translated on
+    # the client, because a client that translated column names would be inventing words for whatever a
+    # person declared - and the built in columns are named here, so this is where their Hebrew belongs too.
+    header_name_he: str = Field(default="", description="Label rendered in the header cell on a Hebrew page")
     field_type: FieldType = Field(default=FieldType.STRING, description="Primitive type the column holds")
     renderer: CellRenderer | None = Field(default=None, description="Renderer overriding the type default")
     renderer_params: dict[str, JsonValue] = Field(default_factory=dict, description="Parameters of the renderer")
@@ -83,6 +87,7 @@ def column_from_spec(spec: BaseColumnSpec) -> ColumnDefinition:
         col_id=spec.col_id,
         field=spec.field,
         header_name=spec.header_name,
+        header_name_he=spec.header_name_he,
         sortable=spec.sortable,
         filter=grid_filter,
         floating_filter=False,
@@ -134,6 +139,10 @@ def column_from_field(definition: FieldResponse) -> ColumnDefinition:
         col_id=definition.key,
         field=f"{DYNAMIC_FIELD_PREFIX}.{definition.key}",
         header_name=definition.name,
+        # A declared field carries its own Hebrew name or carries none, and one that carries none keeps the
+        # name it was declared under in both languages - that name is somebody's own vocabulary rather than
+        # a word this system ships, and inventing a translation of it would be worse than leaving it alone.
+        header_name_he=definition.metadata.name_he or "",
         sortable=definition.sortable and not definition.array,
         filter=grid_filter,
         floating_filter=False,

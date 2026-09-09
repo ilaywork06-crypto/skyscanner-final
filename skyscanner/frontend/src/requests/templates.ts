@@ -36,7 +36,21 @@ interface DownloadedFile {
 /** The manifest the events service builds and the storage service turns into an archive. */
 interface ArchiveManifest {
   entries: { path: string; entry: string }[]
+  /** The files the events service wrote itself, which for a bundle is the description of everything else. */
+  documents?: { entry: string; content: string }[]
   archive_name: string
+}
+
+/** What a restore actually wrote, which is what the dialog reports once it has finished. */
+interface ImportSummary {
+  events_created: number
+  events_skipped: number
+  industries_created: number
+  types_created: number
+  platforms_created: number
+  fields_created: number
+  files_restored: number
+  failures: string[]
 }
 
 /**
@@ -142,5 +156,51 @@ const downloadEventFiles = async (request: EventExportRequest): Promise<Download
   return { blob: archive.data, name: manifest.data.archive_name }
 }
 
-export type { DownloadedFile }
-export { createTemplate, deleteTemplate, downloadEventFiles, exportEvents, listTemplates }
+/**
+ * Download the current view as a bundle - the events, the declarations they name and the bytes of their files.
+ *
+ * This is the export that can be read back in. It follows the same two step road as the plain file archive
+ * above, and for the same reason: the events service knows what an event is and the storage service is the
+ * only one that may read the bucket. What is different is what the manifest carries - a description of
+ * everything in the archive, written into the archive as a document of it, so a bundle is one file.
+ */
+const downloadEventBundle = async (request: EventExportRequest): Promise<DownloadedFile> => {
+  const manifest = await client.post<ArchiveManifest>('/exports/events/bundle', request)
+
+  const archive = await client.post<Blob>('/storage/artifacts/archive', manifest.data, {
+    responseType: 'blob',
+    timeout: ARCHIVE_TIMEOUT_MS,
+  })
+
+  return { blob: archive.data, name: manifest.data.archive_name }
+}
+
+/**
+ * Hand a bundle back to the events service, which writes everything in it that is not already there.
+ *
+ * The whole archive travels in one request rather than being unpacked here, because unpacking it in the
+ * browser would mean the browser deciding what an event is - and then making one request per file and one
+ * per event, any of which could be the one that fails halfway with nobody keeping count.
+ */
+const importEventBundle = async (file: File): Promise<ImportSummary> => {
+  const body = new FormData()
+  body.append('file', file)
+
+  const response = await client.post<ImportSummary>('/imports/events', body, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: ARCHIVE_TIMEOUT_MS,
+  })
+
+  return response.data
+}
+
+export type { DownloadedFile, ImportSummary }
+export {
+  createTemplate,
+  deleteTemplate,
+  downloadEventBundle,
+  downloadEventFiles,
+  exportEvents,
+  importEventBundle,
+  listTemplates,
+}

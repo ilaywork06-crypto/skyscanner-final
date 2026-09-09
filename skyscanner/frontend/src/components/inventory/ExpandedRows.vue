@@ -32,7 +32,7 @@
       prepend-icon="mdi-unfold-less-horizontal"
       @click="emit('collapse-all')"
     >
-      COLLAPSE ALL
+      {{ t('inventory.collapseAll') }}
     </v-btn>
   </div>
 </template>
@@ -66,7 +66,9 @@ export type { ExpandedChip }
 import { computed } from 'vue'
 
 import { findRowById } from '@/composables/useEventsGrid'
-import { readText } from '@truth-platform/core-ui'
+import { readText, useLanguage } from '@truth-platform/core-ui'
+
+const { t } = useLanguage()
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()

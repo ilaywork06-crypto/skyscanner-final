@@ -13,7 +13,7 @@
         </p>
         <v-text-field
           v-model="name"
-          label="Your name"
+          :label="t('identity.name')"
           autofocus
           @keyup.enter="save"
         />
@@ -24,14 +24,14 @@
           variant="text"
           @click="emit('update:modelValue', false)"
         >
-          Cancel
+          {{ t('identity.cancel') }}
         </v-btn>
         <v-btn
           color="primary"
           :disabled="name.trim().length === 0"
           @click="save"
         >
-          Save
+          {{ t('identity.save') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -49,12 +49,15 @@ interface Emits {
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '@truth-platform/core-ui'
 import { ref, watch } from 'vue'
 
 import { readCreator, writeCreator } from '@/utils/identity'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+const { t } = useLanguage()
 
 const name = ref<string>(readCreator())
 

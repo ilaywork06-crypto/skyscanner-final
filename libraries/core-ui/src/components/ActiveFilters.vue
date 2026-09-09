@@ -7,14 +7,14 @@
     v-if="chips.length > 0"
     class="active-filters"
   >
-    <span class="active-filters__label">Filtered by</span>
+    <span class="active-filters__label">{{ t('filters.activeLabel') }}</span>
 
     <button
       v-for="chip in chips"
       :key="chip.id"
       type="button"
       class="active-filters__chip"
-      :aria-label="`Remove the filter ${chip.label}`"
+      :aria-label="t('filters.remove', { label: chip.label })"
       @click="emit('remove', chip)"
     >
       <span class="active-filters__chip-key">{{ chip.field }}:</span>
@@ -32,7 +32,7 @@
       prepend-icon="mdi-filter-remove-outline"
       @click="emit('clear')"
     >
-      CLEAR ALL FILTERS
+      {{ t('filters.clearAll') }}
     </v-btn>
   </div>
 </template>
@@ -80,23 +80,12 @@ interface Emits {
   (event: 'clear'): void
 }
 
-const OPERATOR_LABELS: Record<string, string> = {
-  equals: 'is',
-  not_equals: 'is not',
-  contains: 'contains',
-  not_contains: 'does not contain',
-  starts_with: 'starts with',
-  ends_with: 'ends with',
-  greater_than: 'is above',
-  greater_or_equal: 'is at least',
-  less_than: 'is below',
-  less_or_equal: 'is at most',
-  in: 'is one of',
-  not_in: 'is none of',
-  between: 'is between',
-  is_empty: 'is empty',
-  is_not_empty: 'is filled',
-}
+/*
+ * How each operator reads is looked up rather than written here, because the same chip has to read as a
+ * Hebrew sentence on a Hebrew page. An operator the dictionary has never heard of reads as its own name,
+ * which is what keeps a chip legible when a service grows an operator this library has not been told about.
+ */
+const operatorLabel = (operator: string): string => translate(`operator.${operator}`)
 
 export type { FilterChip, ScopeFilter }
 </script>
@@ -104,9 +93,13 @@ export type { FilterChip, ScopeFilter }
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { translate, useLanguage } from '../composables/useLanguage'
+
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+const { t, language } = useLanguage()
 
 /**
  * Read the header a column carries, so a chip names the field the way the table does.
@@ -121,7 +114,7 @@ const headerOf = (key: string): string => {
  * Render the value of one condition, joining the list operators back into readable text.
  */
 const valueOf = (condition: FilterCondition): string => {
-  const operator = OPERATOR_LABELS[condition.operator] ?? condition.operator
+  const operator = operatorLabel(condition.operator)
   if (condition.operator === 'is_empty' || condition.operator === 'is_not_empty') {
     return operator
   }
@@ -135,15 +128,18 @@ const valueOf = (condition: FilterCondition): string => {
 }
 
 const chips = computed<FilterChip[]>(() => {
+  /* Named so the language is a dependency of this: every label below it is read out of the dictionary. */
+  void language.value
+
   const collected: FilterChip[] = []
 
   if (props.search.length > 0) {
     collected.push({
       id: 'search',
       kind: 'search',
-      field: 'Search',
+      field: t('filters.search'),
       value: props.search,
-      label: `Search: ${props.search}`,
+      label: `${t('filters.search')}: ${props.search}`,
       colId: '',
     })
   }

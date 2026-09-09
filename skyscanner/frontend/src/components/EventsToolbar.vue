@@ -8,7 +8,7 @@
       <v-text-field
         :model-value="search"
         class="toolbar__search"
-        placeholder="Search"
+        :placeholder="t('toolbar.search')"
         prepend-inner-icon="mdi-magnify"
         rounded="pill"
         density="compact"
@@ -50,7 +50,7 @@
           <v-list-item>
             <v-checkbox-btn
               :model-value="showParsed"
-              label="PARSED"
+              :label="t('toolbar.parsed')"
               density="compact"
               @update:model-value="onToggleParsed"
             />
@@ -58,7 +58,7 @@
           <v-list-item>
             <v-checkbox-btn
               :model-value="showNotParsed"
-              label="NOT PARSED"
+              :label="t('toolbar.notParsed')"
               density="compact"
               @update:model-value="onToggleNotParsed"
             />
@@ -201,7 +201,7 @@
             v-for="template in templates"
             :key="template.id"
             :title="template.name"
-            :subtitle="template.shared ? 'Shared' : 'Private'"
+            :subtitle="template.shared ? t('toolbar.shared') : t('toolbar.private')"
             :active="activeTemplate?.id === template.id"
             @click="emit('apply-template', template)"
           />
@@ -217,7 +217,7 @@
             @click="emit('restore-view')"
           />
           <v-list-item
-            title="Save current view"
+            :title="t('toolbar.saveView')"
             prepend-icon="mdi-content-save-outline"
             @click="emit('save-template')"
           />
@@ -234,8 +234,8 @@
         class="toolbar__zoom"
         variant="text"
         :icon="fullscreen ? 'mdi-fullscreen-exit' : 'mdi-fullscreen'"
-        :aria-label="fullscreen ? 'Leave the full screen table' : 'Show the table full screen'"
-        :title="fullscreen ? 'Leave the full screen table (Esc)' : 'Show the table full screen'"
+        :aria-label="fullscreen ? t('toolbar.leaveFullscreen') : t('toolbar.fullscreen')"
+        :title="fullscreen ? t('toolbar.leaveFullscreen') : t('toolbar.fullscreen')"
         @click="emit('toggle-fullscreen')"
       />
 
@@ -248,7 +248,7 @@
             prepend-icon="mdi-download-outline"
             :loading="archiving"
           >
-            Export
+            {{ t('toolbar.export') }}
           </v-btn>
         </template>
         <!--
@@ -256,37 +256,64 @@
           also offers the narrower export, so that a selection is never mistaken for the whole view.
         -->
         <v-list density="compact">
-          <v-list-subheader>Whole current view</v-list-subheader>
+          <v-list-subheader>{{ t('toolbar.wholeView') }}</v-list-subheader>
           <v-list-item
-            title="Export as CSV"
+            :title="t('toolbar.exportCsv')"
             @click="emit('export', { format: 'csv', selectionOnly: false })"
           />
           <v-list-item
-            title="Export as JSON"
+            :title="t('toolbar.exportJson')"
             @click="emit('export', { format: 'json', selectionOnly: false })"
           />
           <v-list-item
-            title="Download all files as ZIP"
+            :title="t('toolbar.exportFiles')"
             prepend-icon="mdi-folder-zip-outline"
             @click="emit('download-files', false)"
           />
+          <!--
+            The bundle is the export that can be read back in: the events as they are stored, the
+            declarations they name, and the bytes of every file they point at.
+          -->
+          <v-list-item
+            :title="t('toolbar.exportBundle')"
+            prepend-icon="mdi-package-variant-closed"
+            @click="emit('export-bundle', false)"
+          />
           <template v-if="selectedCount > 0">
             <v-divider />
-            <v-list-subheader>Selected only - {{ selectedCount }}</v-list-subheader>
+            <v-list-subheader>{{ t('toolbar.selectedOnly', { count: selectedCount }) }}</v-list-subheader>
             <v-list-item
-              title="Export as CSV"
+              :title="t('toolbar.exportCsv')"
               @click="emit('export', { format: 'csv', selectionOnly: true })"
             />
             <v-list-item
-              title="Export as JSON"
+              :title="t('toolbar.exportJson')"
               @click="emit('export', { format: 'json', selectionOnly: true })"
             />
             <v-list-item
-              title="Download their files as ZIP"
+              :title="t('toolbar.exportSelectedFiles')"
               prepend-icon="mdi-folder-zip-outline"
               @click="emit('download-files', true)"
             />
+            <v-list-item
+              :title="t('toolbar.exportBundle')"
+              prepend-icon="mdi-package-variant-closed"
+              @click="emit('export-bundle', true)"
+            />
           </template>
+
+          <!--
+            Reading a bundle in is offered from the same menu the bundle was written from, because a reader
+            looking for the way back in looks where the way out was. It stands under its own heading, below
+            everything that leaves, so it can never be mistaken for one of them.
+          -->
+          <v-divider />
+          <v-list-subheader>{{ t('toolbar.intoInventory') }}</v-list-subheader>
+          <v-list-item
+            :title="t('toolbar.import')"
+            prepend-icon="mdi-upload-outline"
+            @click="emit('import')"
+          />
         </v-list>
       </v-menu>
 
@@ -296,7 +323,7 @@
         variant="tonal"
         @click="emit('select-all')"
       >
-        {{ selectedCount > 0 ? `SELECTED ${selectedCount}` : 'SELECT ALL' }}
+        {{ selectedCount > 0 ? t('toolbar.selected', { count: selectedCount }) : t('toolbar.selectAll') }}
       </v-btn>
 
       <v-btn
@@ -305,7 +332,7 @@
         prepend-icon="mdi-plus"
         @click="emit('create')"
       >
-        EVENT
+        {{ t('toolbar.newEvent') }}
       </v-btn>
     </div>
   </div>
@@ -347,6 +374,8 @@ interface Emits {
   (event: 'save-template'): void
   (event: 'export', choice: ExportChoice): void
   (event: 'download-files', selectionOnly: boolean): void
+  (event: 'export-bundle', selectionOnly: boolean): void
+  (event: 'import'): void
   (event: 'select-all'): void
   (event: 'create'): void
   (event: 'toggle-fullscreen'): void
@@ -356,7 +385,10 @@ export type { ExportChoice }
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '@truth-platform/core-ui'
 import { computed } from 'vue'
+
+const { t } = useLanguage()
 
 const PARSE_LABELS: Record<ParseState, string> = {
   all: 'ALL',

@@ -17,7 +17,7 @@ from skyscanner_models.enums import Permission
 from skyscanner_models.grid import EventExportRequest
 from skyscanner_models.storage import ArchiveRequest
 
-from events_service.dependencies import ExportServiceDependency, require_permission
+from events_service.dependencies import BundleServiceDependency, ExportServiceDependency, require_permission
 from events_service.services.export_service import ENTITY_MODE_SUMMARY
 
 # ----- CONSTS ----- #
@@ -67,6 +67,31 @@ async def export_events(
             ),
         },
     )
+
+
+@ROUTER.post("/events/bundle", response_model=ArchiveRequest)
+async def build_bundle_manifest(
+    request: EventExportRequest,
+    service: BundleServiceDependency,
+    _: Annotated[UserContext, Depends(require_permission(Permission.FILE_DOWNLOAD))],
+) -> ArchiveRequest:
+    """
+    Describe the archive that carries the current view whole - the events, their declarations and their files.
+
+    This is the export that can be read back in. The sheet beside it carries the columns that were on screen
+    flattened into cells, which is what makes it something to read and useless for putting anything back; a
+    bundle carries the events as they are stored, the declarations they name by key, and the bytes of every
+    file they point at, because a bucket key from one installation names nothing in another.
+
+    The manifest is written here and the archive is built by the storage service, which is the only service
+    that may read the bucket - the same split as the plain file archive below. The manifest itself travels
+    inside the archive as a document of it, so a bundle is one file rather than two.
+
+    :param request: Query the exported events are read with, together with the optional selection.
+    :param service: Owner of the bundle.
+    :return: The manifest of the archive.
+    """
+    return await service.build_bundle(query=request, event_ids=request.event_ids)
 
 
 @ROUTER.post("/events/files", response_model=ArchiveRequest)

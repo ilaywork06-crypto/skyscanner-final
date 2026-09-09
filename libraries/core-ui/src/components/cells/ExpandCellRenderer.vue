@@ -8,7 +8,7 @@
       :icon="expanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
       size="small"
       variant="text"
-      :aria-label="expanded ? 'Hide the details of this row' : 'Show the details of this row'"
+      :aria-label="expanded ? t('row.collapse') : t('row.expand')"
       :aria-expanded="expanded"
       @click.stop="toggleDetails"
     />
@@ -27,9 +27,12 @@ interface Props {
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { useLanguage } from '../../composables/useLanguage'
 import { readContext, readRowId } from '../../utils/grid-context'
 
 const props = defineProps<Props>()
+
+const { t } = useLanguage()
 
 const rowId = computed<string>(() => readRowId(props.params))
 const expanded = computed<boolean>(() => readContext(props.params).expandedIds.includes(rowId.value))

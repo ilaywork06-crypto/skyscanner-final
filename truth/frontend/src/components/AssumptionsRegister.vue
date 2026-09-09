@@ -5,16 +5,38 @@
       :columns="columns"
       :hidden-columns="hiddenColumns"
       :total="controller.total.value"
+      :exporting="exporting"
       @update:search="onSearch"
       @toggle-column="onToggleColumn"
       @create="createOpen = true"
-      @export="onExport"
+      @export="onExportSheet"
+      @export-bundle="onExportBundle"
+      @import="importOpen = true"
     >
       <template #actions>
         <slot name="actions" />
       </template>
     </RegisterToolbar>
 
+    <!--
+      The listing of an assumption carries neither its values nor its industries, so every row has to be read
+      on its own before the table can filter or colour by either. That takes one request per assumption and
+      there is no endpoint that would make it fewer, so the table is usable while it happens and says so.
+    -->
+    <div
+      v-if="completing"
+      class="register__progress"
+    >
+      <v-progress-linear
+        :model-value="progressPercent"
+        color="primary"
+        height="4"
+        rounded
+      />
+      <span class="register__progress-label">
+        {{ t('register.reading', { done: progress.completed, total: progress.total }) }}
+      </span>
+    </div>
 
     <QuickFilters
       v-if="quickFilterColumns.length > 0"
@@ -68,6 +90,11 @@
       v-model="createOpen"
       @created="onCreated"
     />
+
+    <ImportBundleDialog
+      v-model="importOpen"
+      @restored="onRestored"
+    />
   </div>
 </template>
 
@@ -75,8 +102,14 @@
 import type { GeneratedColumn, ScopeFilter, TaxonomyItem } from '@truth-platform/core-ui'
 
 interface Props {
-  /** The industry the register is being read under, named by its identifier, or nothing for all of it. */
-  industry?: string | null
+  /**
+   * The industry whose register this is, named by its identifier.
+   *
+   * Required, because there is no longer a table of every industry at once. An assumption is always read
+   * under the industry it was filed under, and a page that showed all of them together answered a question
+   * nobody was asking - so the narrowing is what the table is rather than something applied to it.
+   */
+  industry: string
 }
 </script>
 
@@ -85,7 +118,9 @@ import {
   ActiveFilters,
   PaginationBar,
   QuickFilters,
+  downloadBlob,
   hashedToken,
+  useLanguage,
   useSnackbar,
   type FilterChip,
   type QuickFilterChoice,
@@ -97,22 +132,38 @@ import { useRouter } from 'vue-router'
 import AssumptionsGrid from '@/components/AssumptionsGrid.vue'
 import CreateAssumptionDialog from '@/components/CreateAssumptionDialog.vue'
 import RegisterToolbar from '@/components/RegisterToolbar.vue'
+import ImportBundleDialog from '@/components/ImportBundleDialog.vue'
 import { useAssumptionsGrid } from '@/composables/useAssumptionsGrid'
 import { useRegister } from '@/composables/useRegister'
+import { readLatestAssumption } from '@/requests/assumptions'
+import { buildBundle, bundleFileName, writeBundle } from '@/utils/bundle'
 import { exportRows } from '@/utils/export'
+import { readCreator } from '@/utils/identity'
 
-const props = withDefaults(defineProps<Props>(), { industry: null })
+const props = defineProps<Props>()
 
 const router = useRouter()
-const { industries, fields, findIndustry } = useRegister()
+const {
+  assumptions,
+  industries,
+  schemaDetails,
+  fields,
+  completing,
+  progress,
+  findIndustry,
+  refreshAssumption,
+} = useRegister()
 const { notify, reportError } = useSnackbar()
+const { t } = useLanguage()
 
 const industry = computed<string | null>(() => props.industry)
-const { controller } = useAssumptionsGrid({ fields, industry })
+const { controller } = useAssumptionsGrid({ assumptions, fields, industry })
 
 const grid = ref<InstanceType<typeof AssumptionsGrid> | null>(null)
 const createOpen = ref<boolean>(false)
+const importOpen = ref<boolean>(false)
 const hiddenColumns = ref<string[]>([])
+const exporting = ref<boolean>(false)
 
 const columns = computed<GeneratedColumn[]>(() => controller.configuration.value?.columns ?? [])
 
@@ -129,26 +180,22 @@ const taxonomy = computed<TaxonomyItem[]>(() =>
   industries.value.map((item) => ({ key: item.name, name: item.name, color: hashedToken(item.name) })),
 )
 
-/** The industry the register is narrowed to, shown as a chip so that it can be seen and left. */
-const scope = computed<ScopeFilter | null>(() => {
-  if (props.industry === null) {
-    return null
-  }
-
-  return { field: 'Industry', value: findIndustry(props.industry)?.name ?? props.industry }
-})
-
 /*
- * The table is never handed the register, so it cannot tell an empty register from an empty answer by
- * looking at what it holds. It asks instead: a narrowed table showing nothing is a search that found
- * nothing, and only a table narrowed by nothing is looking at a register with nothing in it.
+ * The industry the register is narrowed to, shown as a chip so that it can be seen. It cannot be lifted -
+ * lifting it would land on a register of every industry, which is the page that no longer exists - so the
+ * chip names what is being read rather than offering a way out of it.
  */
-const narrowed = computed<boolean>(
-  () => controller.search.value.length > 0 || controller.filterConditions.value.length > 0,
+const scope = computed<ScopeFilter | null>(() => ({
+  field: t('column.industry'),
+  value: findIndustry(props.industry)?.name ?? props.industry,
+}))
+
+const progressPercent = computed<number>(() =>
+  progress.value.total === 0 ? 0 : (progress.value.completed / progress.value.total) * 100,
 )
 
 const emptyMessage = computed<string>(() =>
-  narrowed.value ? 'No assumptions match what you are looking for.' : 'No assumptions have been created yet.',
+  assumptions.value.length === 0 ? t('register.empty') : t('register.emptyNarrowed'),
 )
 
 const onSearch = async (term: string) => {
@@ -181,12 +228,13 @@ const onRemoveFilter = (chip: FilterChip) => {
 
   if (chip.kind === 'search') {
     void onSearch('')
-
-    return
   }
 
-  /* Leaving the industry means leaving its page, because that is what the narrowing came from. */
-  void router.push('/assumptions')
+  /*
+   * The industry chip is the one chip that cannot be lifted. It is not a filter somebody applied to this
+   * table - it is which table this is - so pressing it does nothing rather than landing the reader on a
+   * register of everything, which is not a page this client has.
+   */
 }
 
 const onClearFilters = () => {
@@ -200,13 +248,28 @@ const onOpenRow = (rowId: string) => {
 }
 
 /**
- * Show the assumption that was just created, by asking the register again rather than by splicing it in.
- *
- * The table shows one window of an answer it did not compute, so where a new assumption belongs in that
- * answer - or whether it belongs in the window at all - is the register's to say and not this page's.
+ * Read the assumption that was just created, so that it appears in the table without the page being reloaded.
  */
-const onCreated = async () => {
+const onCreated = async (assumptionId: string) => {
   try {
+    const detail = await refreshAssumption(assumptionId)
+    assumptions.value = [{ ...detail, detail }, ...assumptions.value.filter((row) => row.id !== assumptionId)]
+    await controller.refreshRows()
+  } catch (error) {
+    reportError(error)
+  }
+}
+
+/**
+ * Take up the register a restore has just rewritten.
+ *
+ * A restore creates rows, industries and declarations at once, and the dialog has already read the whole
+ * register again by the time this runs - so there is nothing to splice in here, only a table to redraw
+ * against what is now held.
+ */
+const onRestored = async () => {
+  try {
+    await controller.refreshConfiguration()
     await controller.refreshRows()
   } catch (error) {
     reportError(error)
@@ -215,13 +278,68 @@ const onCreated = async () => {
 
 /**
  * Write the rows the table is currently showing out as a spreadsheet.
+ *
+ * This is the export for a person: it carries the columns that were on screen, in the order they were on
+ * screen, with every value flattened into the one cell a sheet holds it in. That flattening is exactly what
+ * makes it something to read rather than something to restore, which is what the bundle below is for.
  */
-const onExport = () => {
+const onExportSheet = () => {
   try {
     exportRows(controller.rows.value, columns.value.filter((column) => visibleColumns.value.includes(column.colId)))
-    notify('The current view was exported', 'success')
+    notify(t('register.exported'), 'success')
   } catch (error) {
     reportError(error)
+  }
+}
+
+/**
+ * Write this industry's register out whole, in the shapes the API creates things in.
+ *
+ * Every assumption of the industry is carried, not the page on screen and not the columns on screen: a
+ * bundle is what puts the register back, and half of one puts half a register back. The rows the register
+ * has not finished reading are read here, one at a time up to a few at once, because their values and their
+ * industries arrive with nothing else.
+ */
+const onExportBundle = async () => {
+  exporting.value = true
+  try {
+    const rows = assumptions.value.filter((row) =>
+      row.detail === null
+        ? true
+        : row.detail.industries.some(
+            (item) => item.id === props.industry || item.name === props.industry,
+          ),
+    )
+
+    const details = await Promise.all(
+      rows.map(async (row) => row.detail ?? (await readLatestAssumption(row.id))),
+    )
+    /*
+     * A row whose reading had not landed could not be narrowed to the industry before it was read, so the
+     * narrowing is applied again now that every one of them has been.
+     */
+    const scoped = details.filter((detail) =>
+      detail.industries.some((item) => item.id === props.industry || item.name === props.industry),
+    )
+
+    const named = new Set(scoped.flatMap((detail) => detail.schemas.map((schema) => schema.name)))
+    const bundle = buildBundle({
+      industry: findIndustry(props.industry)?.name ?? props.industry,
+      industries: industries.value,
+      schemas: [...schemaDetails.value.values()].filter((schema) => named.has(schema.name)),
+      assumptions: scoped,
+      creator: readCreator(),
+    })
+
+    downloadBlob(
+      new Blob([writeBundle(bundle)], { type: 'application/json' }),
+      bundleFileName(findIndustry(props.industry)?.name ?? null),
+    )
+    notify(t('register.exported'), 'success')
+  } catch (error) {
+    reportError(error)
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -243,6 +361,17 @@ watch(industry, async () => {
   flex-direction: column;
   gap: 1rem;
   min-inline-size: 0;
+}
+
+.register__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.register__progress-label {
+  font-size: 0.8125rem;
+  color: rgb(var(--v-theme-app-muted));
 }
 
 .register__empty {

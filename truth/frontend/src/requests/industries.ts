@@ -24,22 +24,6 @@ const readAllIndustries = async (onProgress?: (loaded: number) => void): Promise
   readAll(listIndustries, onProgress)
 
 /**
- * Read every industry together with how many assumptions name it.
- *
- * The counting is one pass over the register inside the service. It used to be done here, by walking every
- * assumption the client had read - which meant the count was wrong until the last of them had arrived, and
- * impossible once there were more of them than a browser could hold.
- */
-const readIndustriesWithCounts = async (): Promise<Industry[]> =>
-  readAll(async (offset, limit) => {
-    const response = await client.get<Industry[]>(INDUSTRIES_PATH, {
-      params: { offset, limit, with_counts: true },
-    })
-
-    return response.data
-  })
-
-/**
  * Read a single industry addressed by its identifier.
  */
 const readIndustry = async (industryId: string): Promise<Industry> => {
@@ -66,11 +50,4 @@ const createIndustry = async (draft: IndustryDraft): Promise<string> => {
   return response.data.id
 }
 
-export {
-  createIndustry,
-  listIndustries,
-  readAllIndustries,
-  readIndustriesWithCounts,
-  readIndustry,
-  readIndustryByName,
-}
+export { createIndustry, listIndustries, readAllIndustries, readIndustry, readIndustryByName }

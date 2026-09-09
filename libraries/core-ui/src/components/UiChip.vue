@@ -1,8 +1,14 @@
 <template>
+  <!--
+    `dir="auto"` because a chip holds one value and that value decides which way it runs. A tag written in
+    Hebrew reads right to left inside an English table and an English one reads left to right inside a
+    Hebrew table, which is what keeps a row of chips readable whatever the two languages are mixed like.
+  -->
   <span
     class="sky-chip"
     :class="{ 'sky-chip--solid': solid }"
     :style="chipStyle"
+    dir="auto"
   ><!--
     A chip reads out its label itself, and a caller that has to say something about the label rather than
     only what it says - a run of it the search matched, painted inside the chip instead of over the whole of

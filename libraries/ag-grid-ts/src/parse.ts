@@ -57,6 +57,7 @@ const parseColumn = (column: GeneratedColumn, options: ParseOptions): ColDef<Gri
     filter: column.filter,
     floatingFilter: column.floatingFilter,
     autoHeight: column.autoHeight,
+    wrapText: column.wrapText === true,
     cellRendererParams: { ...EMPTY_RENDERER_PARAMS, ...column.cellRendererParams },
     /* The vocabulary of the column travels to whatever filter it carries, which is what fills its list. */
     filterParams: { options: column.filterOptions, headerName: column.headerName },

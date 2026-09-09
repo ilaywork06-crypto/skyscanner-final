@@ -38,6 +38,8 @@ const undeclaredColumn = (attribute: MetadataAttribute): GeneratedColumn => ({
   colId: attribute.key,
   field: `${DYNAMIC_FIELD_PREFIX}.${attribute.key}`,
   headerName: humanizeKey(attribute.key),
+  /* Nobody declared this attribute at all, so there is nobody who could have named it in Hebrew. */
+  headerNameHebrew: '',
   sortable: false,
   filter: false,
   floatingFilter: false,

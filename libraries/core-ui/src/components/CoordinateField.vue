@@ -22,7 +22,7 @@
     <div class="coordinate__inputs">
       <v-text-field
         :model-value="latText"
-        label="Latitude"
+        :label="t('input.latitude')"
         type="number"
         density="compact"
         hide-details
@@ -32,7 +32,7 @@
       />
       <v-text-field
         :model-value="lonText"
-        label="Longitude"
+        :label="t('input.longitude')"
         type="number"
         density="compact"
         hide-details
@@ -42,7 +42,7 @@
       />
       <v-text-field
         :model-value="altText"
-        label="Altitude (m)"
+        :label="t('input.altitude')"
         type="number"
         density="compact"
         hide-details
@@ -55,7 +55,7 @@
         size="x-small"
         variant="text"
         :disabled="point === null"
-        aria-label="Clear the coordinate"
+        :aria-label="t('input.clearCoordinate')"
         @click="clear"
       />
     </div>
@@ -84,6 +84,8 @@ const STEP = 0.00001
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../composables/useLanguage'
+
 import 'leaflet/dist/leaflet.css'
 
 import type { CircleMarker, LeafletMouseEvent, Map as LeafletMap } from 'leaflet'
@@ -101,6 +103,8 @@ import {
 
 const props = withDefaults(defineProps<Props>(), { label: 'the coordinate', readonly: false })
 const emit = defineEmits<Emits>()
+
+const { t } = useLanguage()
 
 const canvas = ref<HTMLElement | null>(null)
 const map = shallowRef<LeafletMap | null>(null)

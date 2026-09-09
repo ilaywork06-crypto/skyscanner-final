@@ -50,6 +50,22 @@ class ArchiveEntry(BaseModel):
     entry: str = Field(description="Path the file takes inside the archive, folders included")
 
 
+class ArchiveDocument(BaseModel):
+    """
+    A file the caller wrote itself, placed into an archive beside the ones read out of the bucket.
+
+    This is what makes a bundle a bundle rather than a folder of loose files. A restore needs to know which
+    event each file belonged to, which entity of it, and what everything around them was - and none of that
+    is in the bucket, because the bucket holds bytes under opaque keys. The events service writes that down
+    as a document and sends it along, and the archive carries the two halves together.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    entry: str = Field(description="Path the document takes inside the archive, folders included")
+    content: str = Field(description="What the document holds, as text")
+
+
 class ArchiveRequest(BaseModel):
     """
     The manifest of an archive: which stored files it holds and how they are laid out inside it.
@@ -61,6 +77,10 @@ class ArchiveRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     entries: list[ArchiveEntry] = Field(default_factory=list, description="Files the archive is built from")
+    documents: list[ArchiveDocument] = Field(
+        default_factory=list,
+        description="Files the caller wrote itself, placed into the archive beside the stored ones",
+    )
     archive_name: str = Field(default="skyscanner-files.zip", description="Name the archive is offered under")
 
 

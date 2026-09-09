@@ -24,6 +24,7 @@ import 'vuetify/styles'
 import { configureThemes } from '@truth-platform/core-ui'
 import { createVuetify, type ThemeDefinition } from 'vuetify'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
+import { en, he } from 'vuetify/locale'
 
 const DARK_THEME_NAME = 'truthDark'
 const LIGHT_THEME_NAME = 'truthLight'
@@ -139,8 +140,16 @@ const lightTheme: ThemeDefinition = {
 /* The shared theme switch has no way of knowing what this product called its two themes, so it is told. */
 configureThemes({ dark: DARK_THEME_NAME, light: LIGHT_THEME_NAME, storageKey: 'truth.theme' })
 
+
+/*
+ * Both languages are handed to Vuetify at build time, together with the map that says which of them runs
+ * right to left. Vuetify draws a handful of words of its own - the empty state of a select, the labels of a
+ * pager - and mirrors its own components off this locale rather than off the document, so a locale it was
+ * never given is a locale it cannot be switched to. `useLanguage` moves `locale.current` between these two.
+ */
 const vuetify = createVuetify({
   icons: { defaultSet: 'mdi', aliases, sets: { mdi } },
+  locale: { locale: 'en', fallback: 'en', messages: { en, he }, rtl: { he: true } },
   theme: {
     defaultTheme: DARK_THEME_NAME,
     themes: {

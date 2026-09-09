@@ -26,6 +26,14 @@ interface FieldDependency {
 
 interface FieldMetadata {
   allowed_file_types: string[]
+  /**
+   * What the field is called when the interface is read in Hebrew, or nothing when nobody said.
+   *
+   * A declaration that carries none keeps the name it was declared under in both languages. That name is
+   * the vocabulary of whoever declared it rather than a word this library ships, so there is nowhere else a
+   * Hebrew one could honestly come from - and inventing one would be worse than leaving it alone.
+   */
+  name_he: string | null
   options: string[]
   unit: string | null
   description: string | null

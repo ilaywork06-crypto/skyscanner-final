@@ -10,11 +10,10 @@ dependencies = [
     "events-service",
     "storage-service",
     "notification-service",
-    "truth-service",
 ]
 
 [tool.uv.workspace]
-members = ["libraries/*", "skyscanner/services/*", "truth/backend"]
+members = ["libraries/*", "skyscanner/services/*"]
 # The two TypeScript libraries live beside the Python ones and are not members of this workspace.
 exclude = ["libraries/ag-grid-ts", "libraries/core-ui"]
 
@@ -25,7 +24,6 @@ ag-grid-lib = { workspace = true }
 events-service = { workspace = true }
 storage-service = { workspace = true }
 notification-service = { workspace = true }
-truth-service = { workspace = true }
 
 [dependency-groups]
 dev = [

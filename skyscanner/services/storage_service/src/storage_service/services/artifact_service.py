@@ -388,12 +388,19 @@ class ArtifactService:
         spool moves to disk once it outgrows its buffer. A file the bucket no longer holds is skipped, so
         one missing object costs its own entry rather than the whole download.
 
+        The documents of the manifest are written first, before a single object is read. They are what a
+        reader of the archive - or an import that is restoring it - opens to find out what everything else
+        in it is, and an archive whose description sits behind a gigabyte of telemetry is one that cannot be
+        read until the whole of it has been.
+
         :param request: Files the archive holds and the path each of them takes inside it.
         :return: An iterator over the chunks of the finished archive.
         """
         spool = tempfile.SpooledTemporaryFile(max_size=ARCHIVE_SPOOL_BYTES)
         try:
             with zipfile.ZipFile(spool, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for document in request.documents:
+                    archive.writestr(document.entry, document.content)
                 for item in request.entries:
                     await self._write_entry(archive=archive, path=item.path, entry=item.entry)
 

@@ -5,17 +5,17 @@
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card>
-      <v-card-title>Create an industry</v-card-title>
+      <v-card-title>{{ t('industry.create') }}</v-card-title>
       <v-card-text class="industry-form">
         <div class="industry-form__field">
           <label
             class="industry-form__label"
             for="industry-name"
-          ><span class="industry-form__required">*</span> Name</label>
+          ><span class="industry-form__required">*</span> {{ t('industry.name') }}</label>
           <v-text-field
             id="industry-name"
             v-model="name"
-            placeholder="What the industry is called"
+            :placeholder="t('industry.namePlaceholder')"
             autofocus
           />
         </div>
@@ -24,11 +24,11 @@
           <label
             class="industry-form__label"
             for="industry-description"
-          >Description</label>
+          >{{ t('industry.description') }}</label>
           <v-textarea
             id="industry-description"
             v-model="description"
-            placeholder="What it covers…"
+            :placeholder="t('industry.descriptionPlaceholder')"
             rows="3"
             auto-grow
           />
@@ -40,7 +40,7 @@
           variant="text"
           @click="emit('update:modelValue', false)"
         >
-          Cancel
+          {{ t('identity.cancel') }}
         </v-btn>
         <v-btn
           color="primary"
@@ -48,7 +48,7 @@
           :disabled="name.trim().length === 0 || saving"
           @click="create"
         >
-          Create
+          {{ t('create.create') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -67,7 +67,7 @@ interface Emits {
 </script>
 
 <script setup lang="ts">
-import { useSnackbar } from '@truth-platform/core-ui'
+import { useLanguage, useSnackbar } from '@truth-platform/core-ui'
 import { ref, watch } from 'vue'
 
 import { createIndustry } from '@/requests/industries'
@@ -77,6 +77,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const { notify, reportError } = useSnackbar()
+const { t } = useLanguage()
 
 const name = ref<string>('')
 const description = ref<string>('')
@@ -105,7 +106,7 @@ const create = async () => {
       creator: readCreator(),
     })
 
-    notify(`${name.value.trim()} was created`, 'success')
+    notify(t('industry.created'), 'success')
     emit('created', industryId)
     emit('update:modelValue', false)
   } catch (error) {

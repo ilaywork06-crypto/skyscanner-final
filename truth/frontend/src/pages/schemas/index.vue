@@ -5,7 +5,7 @@
     <div class="sky-page__content">
       <div class="schemas__heading">
         <h1 class="schemas__title">
-          Schemas
+          {{ t('schemas.title') }}
         </h1>
         <v-spacer />
         <v-btn
@@ -13,7 +13,7 @@
           prepend-icon="mdi-plus"
           @click="createOpen = true"
         >
-          SCHEMA
+          {{ t('schemas.new') }}
         </v-btn>
       </div>
 
@@ -25,7 +25,7 @@
       <v-text-field
         v-model="search"
         class="schemas__search"
-        placeholder="Search schemas"
+        :placeholder="t('schemas.search')"
         prepend-inner-icon="mdi-magnify"
         rounded="pill"
         clearable
@@ -46,7 +46,7 @@
         v-else-if="matched.length === 0"
         class="schemas__empty"
       >
-        {{ schemas.length === 0 ? 'No schemas have been declared yet.' : 'No schemas match that search.' }}
+        {{ schemas.length === 0 ? t('schemas.empty') : t('schemas.noMatch') }}
       </div>
 
       <div
@@ -87,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { UiChip, formatDateTime, useSnackbar } from '@truth-platform/core-ui'
+import { formatDateTime, UiChip, useLanguage, useSnackbar } from '@truth-platform/core-ui'
 import { computed, ref } from 'vue'
 
 import AppHeader from '@/components/AppHeader.vue'
@@ -98,6 +98,7 @@ import { readScheme } from '@/utils/scheme'
 
 const { industries, schemas, schemaDetails, loading, load } = useRegister()
 const { reportError } = useSnackbar()
+const { t } = useLanguage()
 
 const search = ref<string>('')
 const createOpen = ref<boolean>(false)

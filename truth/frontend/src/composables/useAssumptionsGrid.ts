@@ -1,28 +1,69 @@
 /**
- * Binding the register's table to the service that answers it.
+ * Binding the register's table to the register held in memory.
  *
  * The grid controller of the library asks for two functions - one that builds the columns and one that reads
- * a page of rows - and neither of them cares where the answer comes from. Here both go to the service: the
- * columns are still generated from the declarations the client holds, but every question about the rows -
- * the search, the restrictions, the ordering, the window and the count - is answered by the register itself.
- *
- * That is the whole difference between a table that works at thirty assumptions and one that works at a
- * hundred thousand. What crosses the network is one screen of rows, whatever the register holds.
+ * a page of rows - and neither of them cares whether the answer came from a service or from an array. That is
+ * what lets this product keep the whole generated table without having a single endpoint behind it: the
+ * columns are generated from the schemas and the pages are cut out of the rows already read.
  */
 
 import { createGridController, type GridController } from '@truth-platform/ag-grid-ts'
-import type { GeneratedGridConfiguration, GridRowsPage } from '@truth-platform/core-ui'
-import { watch, type ComputedRef } from 'vue'
+import {
+  language,
+  type FilterCondition,
+  type GeneratedGridConfiguration,
+  type GridRow,
+  type GridRowsPage,
+} from '@truth-platform/core-ui'
+import { computed, onScopeDispose, shallowRef, watch, type ComputedRef, type Ref } from 'vue'
 
+import type { AssumptionRow } from '@/models/assumption'
 import type { SchemeField } from '@/models/scheme'
-import { queryAssumptions, readFacet } from '@/requests/assumptions'
 import { buildConfiguration } from '@/utils/columns'
+import { collectOptions, runQuery } from '@/utils/query'
 import { assumptionToRow } from '@/utils/rows'
 
 const DEFAULT_PAGE_SIZE = 25
 
+/**
+ * How long the table waits after the register moves before it reads its rows again.
+ *
+ * Completing the register is one request per assumption, and each answer that lands changes the rows. Reacting
+ * to every one of them would re-run the whole query - and re-render the table - a few hundred times during the
+ * first load, for a table nobody can read while it flickers. Waiting a moment collapses a burst of arrivals
+ * into a single refresh, and a lone change still lands well inside a blink.
+ */
+const REFRESH_DELAY_MS = 150
+
+/*
+ * What the register's table is currently narrowed by, held where anything can read it.
+ *
+ * The panels opened underneath the rows need this - each of them marks the values the table is already
+ * narrowed to - and a panel cannot be handed a prop: AG Grid mounts it outside the tree the application
+ * was mounted in, and the context it is handed instead is the one it was handed, not one that keeps up.
+ * A callback survives being old, because it acts through refs that are current; a value does not.
+ *
+ * One register table is on screen at a time, which is what makes one of these right rather than one per
+ * table - the same reason the register itself is held once and shared.
+ */
+/* Shallow: a condition holds a `JsonValue`, which is recursive, and a deep ref over one blows TypeScript's
+   instantiation limit. Nothing writes into a condition anyway - the list is replaced whole. */
+const activeFilters = shallowRef<FilterCondition[]>([])
+
+/**
+ * Which values one column of the register's table is currently narrowed to.
+ *
+ * Read off the conditions the table is actually running, so a narrowing lifted from the chips above the
+ * table stops being marked inside every panel as well: there is one answer and one place it lives.
+ */
+const narrowedValues = (colId: string): string[] =>
+  activeFilters.value
+    .filter((condition) => condition.key === colId)
+    .flatMap((condition) => condition.values.map((value) => String(value)))
+
 /** What the table is being shown out of, and what it is currently narrowed to. */
 interface AssumptionsGridInput {
+  assumptions: Ref<AssumptionRow[]>
   fields: ComputedRef<SchemeField[]>
   /** The industry the register is being read under, or nothing for the whole of it. */
   industry: ComputedRef<string | null>
@@ -30,91 +71,131 @@ interface AssumptionsGridInput {
 
 interface AssumptionsGrid {
   controller: GridController
+  /** Every row of the register as the table addresses it, before any narrowing. */
+  rows: ComputedRef<GridRow[]>
 }
 
 /**
- * Build the controller of the register's table, wired to the service that answers it.
+ * Build the controller of the register's table, wired to the rows held in memory.
  */
 const useAssumptionsGrid = (input: AssumptionsGridInput): AssumptionsGrid => {
+  const rows = computed<GridRow[]>(() => input.assumptions.value.map((row) => assumptionToRow(row)))
+
+  /* The rows of the industry being read, which is what both the columns and the pages are drawn from. */
+  const scoped = computed<GridRow[]>(() => {
+    const industry = input.industry.value
+    if (industry === null) {
+      return rows.value
+    }
+
+    return rows.value.filter((row) => {
+      const names = row.industries
+      const ids = row.industry_ids
+
+      return (
+        (Array.isArray(names) && names.includes(industry)) || (Array.isArray(ids) && ids.includes(industry))
+      )
+    })
+  })
+
   /**
    * Build the columns out of the declared attributes, and fill each filter with the values actually present.
    *
-   * The vocabulary of a filter is asked of the register rather than read off the rows on screen, which is the
-   * only way it can be right: the rows on screen are one page of an answer, and a filter offering only what
-   * that page happens to hold would narrow the register by the page it is already showing.
+   * A filter that offers a vocabulary reads it off the rows rather than off the declaration, so a column
+   * offers what the register holds - including the values somebody wrote before the schema was revised to
+   * name them.
    */
-  const loadConfiguration = async (): Promise<GeneratedGridConfiguration> => {
+  const loadConfiguration = (): Promise<GeneratedGridConfiguration> => {
     const configuration = buildConfiguration(input.fields.value)
-    const industry = input.industry.value
 
-    const columns = await Promise.all(
-      configuration.columns.map(async (column) => {
-        if (column.filter !== 'SetColumnFilter') {
-          return column
-        }
-
-        try {
-          const facet = await readFacet(column.colId, industry)
-
-          return { ...column, filterOptions: facet.values.map((value) => ({ value, label: value })) }
-        } catch {
-          /* A vocabulary that could not be gathered costs that column its list of choices and nothing else. */
-          return column
-        }
-      }),
-    )
-
-    return { ...configuration, columns }
+    return Promise.resolve({
+      ...configuration,
+      columns: configuration.columns.map((column) =>
+        column.filter === 'SetColumnFilter'
+          ? {
+              ...column,
+              filterOptions: collectOptions(scoped.value, column.colId).map((value) => ({ value, label: value })),
+            }
+          : column,
+      ),
+    })
   }
 
   const controller = createGridController({
     loadConfiguration,
-    loadRows: async (query): Promise<GridRowsPage> => {
-      const answer = await queryAssumptions({
-        search: query.search,
-        industry: input.industry.value,
+    loadRows: (query): Promise<GridRowsPage> => {
+      const answer = runQuery(scoped.value, {
+        search: query.search ?? '',
         filters: query.filters,
         sort: query.sort,
-        offset: Math.max(0, (query.page - 1) * query.pageSize),
-        limit: query.pageSize,
+        page: query.page,
+        pageSize: query.pageSize,
       })
 
-      return {
-        rows: answer.rows.map((row) => assumptionToRow(row)),
+      return Promise.resolve({
+        rows: answer.rows,
         total: answer.total,
         page: query.page,
         pageSize: query.pageSize,
         pages: Math.max(1, Math.ceil(answer.total / query.pageSize)),
-      }
+      })
     },
     pageSize: DEFAULT_PAGE_SIZE,
   })
 
   /*
-   * The columns are rebuilt when the declarations themselves changed, and only then, because rebuilding them
-   * resets the arrangement the reader may have made of them.
+   * The register grows while it is being read - every assumption that is completed adds its values, and
+   * every schema that lands adds its columns - so the table is rebuilt as that happens rather than showing
+   * whatever it happened to be built from first. The columns are only rebuilt when the declarations
+   * themselves changed, because rebuilding them resets the arrangement the reader may have made of them.
    */
   watch(
-    () => input.fields.value.map((field) => `${field.key}:${field.type}`).join(','),
+    /*
+     * The language belongs in here beside the declarations, because every header of the table is read out of
+     * the dictionary and a change of language therefore changes all of them at once. It is the same rebuild
+     * for the same reason - the columns are not what they were - and running it through the one watcher
+     * keeps a language change from resetting the arrangement twice.
+     */
+    () => `${language.value}|${input.fields.value.map((field) => `${field.key}:${field.type}`).join(',')}`,
     () => {
       void controller.refreshConfiguration()
     },
+  )
+
+  /* What the table is narrowed by is published as it changes, for the panels opened underneath its rows. */
+  watch(
+    controller.filterConditions,
+    (conditions) => {
+      activeFilters.value = conditions
+    },
+    { immediate: true },
   )
 
   /*
-   * Narrowing to an industry changes both halves at once: the rows are a different answer, and the filters
-   * offer a different vocabulary, because the vocabulary is gathered within whatever the table is showing.
+   * The rows are read again whenever the register moves underneath the table - an assumption completed, one
+   * created, an industry left - collapsed into one refresh per burst rather than one per arrival.
    */
-  watch(
-    () => input.industry.value,
-    () => {
-      void controller.refreshConfiguration()
-      void controller.goToPage(1)
-    },
-  )
+  let pending: ReturnType<typeof setTimeout> | null = null
 
-  return { controller }
+  watch(scoped, () => {
+    if (pending !== null) {
+      clearTimeout(pending)
+    }
+
+    pending = setTimeout(() => {
+      pending = null
+      void controller.refreshRows()
+    }, REFRESH_DELAY_MS)
+  })
+
+  onScopeDispose(() => {
+    if (pending !== null) {
+      clearTimeout(pending)
+    }
+  })
+
+  return { controller, rows }
 }
 
 export type { AssumptionsGrid, AssumptionsGridInput }
-export { DEFAULT_PAGE_SIZE, useAssumptionsGrid }
+export { DEFAULT_PAGE_SIZE, narrowedValues, useAssumptionsGrid }

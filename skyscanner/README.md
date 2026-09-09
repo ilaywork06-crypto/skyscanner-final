@@ -262,6 +262,92 @@ out of them; and an address is offered only when the browser's own parser says i
 shows characters rather than a link, because half an address is not one - the viewer behind the expand
 affordance holds the whole value and reads the addresses out of that.
 
+## Taking the inventory somewhere else
+
+There are now four exports, and they answer two entirely different questions.
+
+**The sheet and the file archive are for a person.** A CSV or a JSON carries the columns that were on screen,
+in the order they were on screen, with every value flattened into the one cell a sheet holds it in; the ZIP
+carries the files of those events laid out in a folder per event. Both are things to read, and the
+flattening is exactly what makes them useless for putting anything back: a flattened value has lost whether
+it was a number or the word for one, a hidden column has lost its values entirely, and a renamed header no
+longer says which key it came from.
+
+**The bundle is the other thing** - the export that can be read back in. It is one zip holding
+`manifest.json` and a `files/` folder, and the manifest carries:
+
+- every event exactly as it is stored, entities and dynamic values and file records included;
+- the declarations those events name by key - the industries, the event and entity types, the platforms and
+  the declared fields. Without them a restored event names an industry that does not exist, is filed under a
+  type nothing declares and answers fields no form offers, which is a row in a table rather than an event in
+  an inventory. Only the declarations the exported events actually name travel, so a bundle of one
+  industry's events does not drag another industry's schema along with it;
+- a map from each bucket key to the entry its bytes sit at, because a bucket key from one installation names
+  nothing in another. A file referenced by an event and by two of its entities is carried once and all three
+  records are pointed back at the one copy.
+
+The two halves are built by the two services that own them. The events service writes the manifest, because
+only it knows what an event is; the storage service builds the archive, because only it may read the bucket.
+The manifest travels inside the archive as a document of it, which is why a bundle is one file rather than
+two - `ArchiveRequest.documents` is what carries it.
+
+### Importing one
+
+`POST /api/imports/events` takes a bundle and writes everything in it that is not already there, in three
+passes, and the order is not a preference. The declarations go first, because an event names them by key and
+a key that has not been declared yet is a column no form offers. The files go next: every one of them is
+written into this system's bucket through the storage service - the events service never touches the bucket
+itself - and every record that pointed at it is repointed at where it actually landed. The events go last.
+
+**An event keeps its identifier and its running number** when nothing here is already using either, so a
+restore into an empty system reproduces the inventory exactly as it was: the same numbers on the same rows,
+which is what makes a link somebody wrote down still lead where it led. The counter is then lifted past
+everything restored, so the next event created by hand gets a number of its own. Restoring into a system
+that already holds one of those numbers is a merge rather than a restore, and there the event is given a
+fresh one - there is nothing else it could be given.
+
+**An event whose identifier is already here is left exactly as it is.** That is what makes a restore that was
+interrupted safe to run again, and it is also why an import is never a way to overwrite anything: it adds
+what is missing and never rewrites what is there.
+
+**One failure does not stop the rest.** A bundle is a great many independent writes, and the only two honest
+behaviours are to stop at the first refusal and leave a half restored inventory unexplained, or to write
+everything that can be written and say exactly what could not. The answer carries the counts and names every
+failure, and the dialog shows both.
+
+A file whose bytes could not be restored leaves its record pointing at the key it came in with. That key
+names nothing here, so the file cannot be opened - but the record still says the file existed, what it was
+called and how large it was, which is a truer account of the event than quietly dropping it.
+
+## Hebrew
+
+The switch is in the header, beside the theme switch, and the whole interface follows it - the words, and
+the direction they run in.
+
+Three separate things have to move for a page to actually mirror, and `useLanguage` in `libraries/core-ui`
+is the one thing that knows about all three: the document's own `dir`, which is what makes every CSS logical
+property in the layouts mean the other thing; Vuetify's locale, because Vuetify mirrors its own components
+off that rather than off the document; and AG Grid, which reads its direction once when it builds itself and
+never looks again - so the table is keyed on the language and rebuilt rather than told.
+
+The words come out of dictionaries. The shared library ships the vocabulary of the table itself and this
+client adds the vocabulary of the inventory, and a phrase named by both is this client's - which is how the
+bar under the table counts events rather than rows. A phrase with no Hebrew falls back to its English, so a
+dictionary that is behind leaves a few English words on a Hebrew page rather than holes in it.
+
+**The column headers are not in either dictionary.** They are generated by the events service out of the
+declarations, so the service is where they are named - in both languages, on the column itself, through
+`header_name_he` - and the client swaps one for the other in one place, where the configuration lands. That
+is deliberate: a header is read by the grid, by the chips above the table, by the quick filter pills, by the
+column picker, by the search box inside a set filter and by the export, and every one of them reads
+`headerName`. Swapping it once means all of them are right without knowing a second language exists.
+
+**What is deliberately not translated is your data.** The names of the industries, the types and the
+platforms are written by the people using the inventory, in whichever language they chose, and inventing
+words for those would be worse than leaving them alone. The one exception is a declared field, which can
+carry a Hebrew name of its own: `metadata.name_he`, offered as a field on the Schema page. Left empty it
+keeps its declared name in both languages.
+
 ## Deleting
 
 Nothing is ever taken out of the document store. Deleting an event, an entity, a field, a type, a platform, a

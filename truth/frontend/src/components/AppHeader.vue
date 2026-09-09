@@ -2,22 +2,16 @@
   <header class="app-header">
     <nav
       class="app-header__nav"
-      aria-label="Sections"
+      :aria-label="t('app.sections')"
     >
-      <RouterLink
-        v-for="link in LINKS"
-        :key="link.to"
-        class="app-header__link"
-        :class="{ 'app-header__link--active': isActive(link.to) }"
-        :to="link.to"
-      >
-        {{ link.label }}
-      </RouterLink>
-
       <!--
         The industries are a menu rather than a row of links, because a register may carry more of them than
         a header has room for. Picking one leads to that industry's own page; the entry above them leads to
         the list of all of them.
+
+        There is no way from here into the whole register at once, and that is deliberate. An assumption is
+        always read under the industry it was filed under, so a table of every industry together was a page
+        that answered a question nobody was asking and cost a reading of the whole register to draw.
       -->
       <v-menu location="bottom start">
         <template #activator="{ props: activator }">
@@ -31,7 +25,7 @@
               size="x-small"
               icon="mdi-chevron-up"
             />
-            INDUSTRIES
+            {{ t('app.industries') }}
           </button>
         </template>
         <v-list
@@ -39,7 +33,7 @@
           density="compact"
         >
           <v-list-item
-            title="All industries"
+            :title="t('app.allIndustries')"
             prepend-icon="mdi-view-grid-outline"
             to="/industries"
           />
@@ -52,19 +46,11 @@
           />
           <v-list-item
             v-if="industries.length === 0"
-            title="No industries yet"
+            :title="t('app.noIndustries')"
             disabled
           />
         </v-list>
       </v-menu>
-
-      <RouterLink
-        class="app-header__link"
-        :class="{ 'app-header__link--active': isActive('/assumptions') }"
-        to="/assumptions"
-      >
-        ALL
-      </RouterLink>
     </nav>
 
     <div class="app-header__actions">
@@ -74,7 +60,7 @@
         role="switch"
         :ripple="false"
         :aria-checked="isDark"
-        :aria-label="isDark ? 'Switch to the light theme' : 'Switch to the dark theme'"
+        :aria-label="isDark ? t('app.toLight') : t('app.toDark')"
         @click="toggle"
       >
         <span
@@ -88,32 +74,50 @@
         </span>
       </v-btn>
 
+      <!--
+        The language is a pair of buttons rather than a menu, because there are two of them and each is
+        written in itself: a reader who cannot read the language currently on screen can still find the one
+        they came for.
+      -->
+      <div
+        class="app-header__languages"
+        role="group"
+        :aria-label="t('language.label')"
+      >
+        <button
+          v-for="name in LANGUAGES"
+          :key="name"
+          type="button"
+          class="app-header__language"
+          :class="{ 'app-header__language--active': language === name }"
+          :aria-pressed="language === name"
+          @click="setLanguage(name)"
+        >
+          {{ LANGUAGE_NAMES[name] }}
+        </button>
+      </div>
+
       <v-menu location="bottom end">
         <template #activator="{ props: activator }">
           <v-btn
             v-bind="activator"
             icon="mdi-cog"
             variant="text"
-            aria-label="Settings"
-            title="Settings"
+            :aria-label="t('app.settings')"
+            :title="t('app.settings')"
           />
         </template>
         <v-list density="compact">
-          <v-list-subheader>Settings</v-list-subheader>
+          <v-list-subheader>{{ t('app.settings') }}</v-list-subheader>
           <v-list-item
-            title="Schemas"
+            :title="t('app.schemas')"
             prepend-icon="mdi-table-cog"
             to="/schemas"
           />
           <v-list-item
-            title="Industries"
+            :title="t('industries.title')"
             prepend-icon="mdi-domain"
             to="/industries"
-          />
-          <v-list-item
-            title="Snapshots"
-            prepend-icon="mdi-camera-outline"
-            to="/snapshots"
           />
           <v-divider />
           <!--
@@ -122,7 +126,7 @@
           -->
           <v-list-item
             :title="creator"
-            subtitle="Creating as"
+            :subtitle="t('app.creatingAs')"
             prepend-icon="mdi-account-outline"
             @click="identityOpen = true"
           />
@@ -132,7 +136,7 @@
 
     <RouterLink
       class="app-header__brand"
-      to="/assumptions"
+      to="/industries"
     >
       <svg
         class="app-header__mark"
@@ -161,7 +165,7 @@
           opacity="0.35"
         />
       </svg>
-      <span class="app-header__wordmark">TRUTH</span>
+      <span class="app-header__wordmark">{{ t('app.name') }}</span>
     </RouterLink>
 
     <IdentityDialog v-model="identityOpen" />
@@ -176,13 +180,10 @@ import type { Industry } from '@/models/industry'
 interface Props {
   industries?: Industry[]
 }
-
-/** The sections of the register, in the order the design puts them across the header. */
-const LINKS: { to: string; label: string }[] = [{ to: '/snapshots', label: 'SNAPSHOTS' }]
 </script>
 
 <script setup lang="ts">
-import { useAppTheme } from '@truth-platform/core-ui'
+import { LANGUAGES, LANGUAGE_NAMES, useAppTheme, useLanguage } from '@truth-platform/core-ui'
 import { ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
@@ -193,6 +194,7 @@ withDefaults(defineProps<Props>(), { industries: () => [] })
 
 const route = useRoute()
 const { isDark, toggle } = useAppTheme()
+const { t, language, setLanguage } = useLanguage()
 
 const identityOpen = ref<boolean>(false)
 const creator = ref<string>(readCreator())
@@ -266,6 +268,44 @@ const isActive = (path: string): boolean => route.path === path || route.path.st
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+/*
+ * The two languages sit in one pill, the way the two halves of a segmented control do. Each is written in
+ * itself rather than in the language currently on screen, so the switch is legible from either side of it.
+ */
+.app-header__languages {
+  display: inline-flex;
+  align-items: center;
+  border: 0.0625rem solid rgba(var(--v-theme-on-surface), 0.35);
+  border-radius: 999rem;
+  overflow: hidden;
+}
+
+.app-header__language {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding-inline: 0.625rem;
+  padding-block: 0.375rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition:
+    opacity 0.15s ease-in-out,
+    background-color 0.15s ease-in-out;
+}
+
+.app-header__language:hover {
+  opacity: 1;
+}
+
+.app-header__language--active {
+  opacity: 1;
+  background-color: rgba(var(--v-theme-on-surface), 0.16);
+  font-weight: 600;
 }
 
 .app-header__brand {

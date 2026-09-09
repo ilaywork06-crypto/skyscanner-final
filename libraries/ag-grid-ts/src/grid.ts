@@ -24,6 +24,15 @@ interface GridOptionsInput {
   visibleColumns?: string[]
   detailRowHeight?: number
   onRowClicked?: (row: GridRow) => void
+  /**
+   * Whether the rows can be ticked, which puts a column of checkboxes at the start of the table.
+   *
+   * Off unless a product asks for it, because a tick is only worth its column when something acts on it. An
+   * inventory exports and archives the rows that were picked; a register has nothing that reads a
+   * selection, so the column there was a column of controls that did nothing, pinned in front of the values
+   * somebody opened the table for.
+   */
+  selectable?: boolean
 }
 
 const DETAIL_ROW_KEY = '__detail'
@@ -137,19 +146,23 @@ const buildGridOptions = (input: GridOptionsInput): GridOptions<GridRow> => {
     ensureDomOrder: true,
     suppressCellFocus: true,
     suppressDragLeaveHidesColumns: true,
-    rowSelection: {
-      mode: 'multiRow',
-      checkboxes: true,
-      headerCheckbox: true,
-      enableClickSelection: false,
-      selectAll: 'filtered',
-    },
-    selectionColumnDef: {
-      pinned: 'left',
-      lockPosition: 'left',
-      suppressMovable: true,
-      width: 50
-    },
+    ...(input.selectable === true
+      ? {
+          rowSelection: {
+            mode: 'multiRow' as const,
+            checkboxes: true,
+            headerCheckbox: true,
+            enableClickSelection: false,
+            selectAll: 'filtered' as const,
+          },
+          selectionColumnDef: {
+            pinned: 'left' as const,
+            lockPosition: 'left' as const,
+            suppressMovable: true,
+            width: 50,
+          },
+        }
+      : {}),
     isRowSelectable: (node) => !isDetailRow(node.data),
     postSortRows: attachDetailRows,
     getRowId: (params) => String(params.data.id),

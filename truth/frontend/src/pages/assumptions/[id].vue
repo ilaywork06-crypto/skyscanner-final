@@ -5,17 +5,17 @@
     <div class="sky-page__content">
       <div class="assumption__heading">
         <v-btn
-          icon="mdi-chevron-left"
+          :icon="direction === 'rtl' ? 'mdi-chevron-right' : 'mdi-chevron-left'"
           variant="text"
-          aria-label="Back to the register"
-          to="/assumptions"
+          :aria-label="t('industries.back')"
+          to="/industries"
         />
         <h1 class="assumption__title">
-          {{ detail?.name ?? 'Assumption' }}
+          {{ detail?.name ?? t('column.assumptionText') }}
         </h1>
         <UiChip
           v-if="detail !== null"
-          :label="`rev ${detail.revision}`"
+          :label="t('schemas.revision', { number: detail.revision })"
           token="chip-platform"
         />
         <v-spacer />
@@ -25,7 +25,7 @@
           prepend-icon="mdi-content-duplicate"
           @click="duplicateOpen = true"
         >
-          Duplicate
+          {{ t('assumption.duplicate') }}
         </v-btn>
       </div>
 
@@ -50,7 +50,7 @@
       <template v-else>
         <v-card class="assumption__card">
           <h2 class="assumption__section">
-            Assumption
+            {{ t('column.assumptionText') }}
           </h2>
           <p class="assumption__text">
             {{ detail.assumption_text }}
@@ -109,7 +109,7 @@
               size="small"
               :to="`/schemas/${schema.id}`"
             >
-              Open schema
+              {{ t('assumption.openSchema') }}
             </v-btn>
           </div>
 
@@ -137,7 +137,7 @@
             v-else
             class="assumption__muted"
           >
-            This schema declares no attributes.
+            {{ t('schemas.noAttributes') }}
           </p>
         </v-card>
       </template>
@@ -161,7 +161,7 @@ interface AssumptionFact {
 </script>
 
 <script setup lang="ts">
-import { EMPTY_PLACEHOLDER, UiChip, formatDateTime, hashedToken, type JsonValue } from '@truth-platform/core-ui'
+import { EMPTY_PLACEHOLDER, formatDateTime, hashedToken, type JsonValue, UiChip, useLanguage } from '@truth-platform/core-ui'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -172,6 +172,8 @@ import type { AssumptionDetail } from '@/models/assumption'
 import type { SchemeField } from '@/models/scheme'
 import { readLatestAssumption } from '@/requests/assumptions'
 import { readScheme } from '@/utils/scheme'
+
+const { t, direction } = useLanguage()
 
 const route = useRoute('/assumptions/[id]')
 const router = useRouter()

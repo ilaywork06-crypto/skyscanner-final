@@ -10,12 +10,11 @@
   >
     <v-card class="unsaved">
       <v-card-title class="unsaved__title">
-        Leave without saving?
+        {{ t('common.unsavedTitle') }}
       </v-card-title>
 
       <v-card-text class="unsaved__body">
-        The form contains changes. If you close this screen they will not be saved.
-        Are you sure you want to leave?
+        {{ t('common.unsavedBody') }}
       </v-card-text>
 
       <v-card-actions>
@@ -24,13 +23,13 @@
           variant="text"
           @click="emit('update:modelValue', false)"
         >
-          Keep editing
+          {{ t('common.keepEditing') }}
         </v-btn>
         <v-btn
           color="error"
           @click="emit('discard')"
         >
-          Discard changes
+          {{ t('common.discard') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -49,8 +48,12 @@ interface Emits {
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../composables/useLanguage'
+
 defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+const { t } = useLanguage()
 </script>
 
 <style scoped>

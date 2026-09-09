@@ -2,7 +2,7 @@
   <div class="builder">
     <div class="builder__head">
       <h3 class="builder__title">
-        Attributes
+        {{ t('schemas.attributes') }}
       </h3>
       <v-btn
         variant="tonal"
@@ -10,7 +10,7 @@
         prepend-icon="mdi-plus"
         @click="addField"
       >
-        Add attribute
+        {{ t('schemas.addAttribute') }}
       </v-btn>
     </div>
 
@@ -18,7 +18,7 @@
       v-if="scheme.fields.length === 0"
       class="builder__empty"
     >
-      A schema declares the attributes an assumption carries. Add the first one.
+      {{ t('schemas.firstAttribute') }}
     </p>
 
     <div
@@ -29,36 +29,49 @@
       <div class="builder__row">
         <v-text-field
           :model-value="field.key"
-          label="Key"
-          placeholder="stored_under"
+          :label="t('schemas.key')"
+          :placeholder="t('schemas.keyPlaceholder')"
           density="compact"
           :error-messages="keyProblem(field, index)"
           @update:model-value="updateField(index, { key: $event, displayName: nameFor(field, $event) })"
         />
         <v-text-field
           :model-value="field.displayName"
-          label="Display name"
+          :label="t('schemas.displayName')"
           density="compact"
           @update:model-value="updateField(index, { displayName: $event })"
         />
+        <!--
+          The Hebrew name of a declared attribute can only come from the declaration, because the attribute
+          itself is somebody's own vocabulary rather than one this client ships words for. A schema that
+          leaves this empty keeps its declared name in both languages, which is the honest answer.
+        -->
+        <v-text-field
+          :model-value="field.displayNameHebrew"
+          :label="t('schemas.hebrewName')"
+          :hint="t('schemas.hebrewNameHint')"
+          density="compact"
+          dir="rtl"
+          @update:model-value="updateField(index, { displayNameHebrew: $event })"
+        />
         <v-select
           :model-value="field.type"
-          :items="TYPE_OPTIONS"
-          label="Type"
+          :items="typeOptions(field.type)"
+          :label="t('schemas.type')"
           density="compact"
           @update:model-value="changeType(index, $event)"
         />
         <div class="builder__flags">
           <v-checkbox
             :model-value="field.required"
-            label="Required"
+            :label="t('schemas.required')"
             density="compact"
             hide-details
             @update:model-value="updateField(index, { required: $event === true })"
           />
           <v-checkbox
             :model-value="field.array"
-            label="Many"
+            :label="t('schemas.many')"
             density="compact"
             hide-details
             @update:model-value="updateField(index, { array: $event === true })"
@@ -67,7 +80,11 @@
             icon="mdi-delete-outline"
             variant="text"
             size="small"
-            :aria-label="`Remove ${field.displayName.length > 0 ? field.displayName : 'this attribute'}`"
+            :aria-label="
+              t('schemas.removeAttribute', {
+                name: field.displayName.length > 0 ? field.displayName : t('schemas.thisAttribute'),
+              })
+            "
             @click="removeField(index)"
           />
         </div>
@@ -77,10 +94,10 @@
       <v-combobox
         v-if="field.type === 'enum'"
         :model-value="field.options"
-        label="Options"
-        :placeholder="ENTER_TO_ADD_HINT"
+        :label="t('schemas.options')"
+        :placeholder="t('input.enterToAdd')"
         density="compact"
-        :error-messages="field.options.length === 0 ? 'An enumeration needs at least one option' : undefined"
+        :error-messages="field.options.length === 0 ? t('schemas.optionsRequired') : undefined"
         multiple
         chips
         closable-chips
@@ -93,28 +110,28 @@
       >
         <v-text-field
           :model-value="asText(field.min)"
-          label="Min"
+          :label="t('schemas.min')"
           type="number"
           density="compact"
-          hint="Optional"
+          :hint="t('schemas.optional')"
           persistent-hint
           @update:model-value="updateField(index, { min: asNumber(field.type, $event) })"
         />
         <v-text-field
           :model-value="asText(field.max)"
-          label="Max"
+          :label="t('schemas.max')"
           type="number"
           density="compact"
-          hint="Optional"
+          :hint="t('schemas.optional')"
           persistent-hint
           @update:model-value="updateField(index, { max: asNumber(field.type, $event) })"
         />
         <v-text-field
           :model-value="asText(field.step)"
-          label="Step"
+          :label="t('schemas.step')"
           type="number"
           density="compact"
-          hint="Optional"
+          :hint="t('schemas.optional')"
           persistent-hint
           @update:model-value="updateField(index, { step: asNumber(field.type, $event) })"
         />
@@ -126,8 +143,7 @@
       what every scheme is written with. Saying so is better than an editor whose contents are dropped.
     -->
     <p class="builder__note">
-      Constraints are not supported by the service yet, so a schema is stored without them. What a field is
-      required to hold, what it may be chosen from and what a number is bounded by are all declared above.
+      {{ t('schemas.constraintsNote') }}
     </p>
   </div>
 </template>
@@ -143,24 +159,62 @@ interface Emits {
   (event: 'update:scheme', scheme: Scheme): void
 }
 
-/** The kinds of attribute the service accepts, with the name each one is offered under. */
-const TYPE_OPTIONS: { title: string; value: SchemeFieldType }[] = [
-  { title: 'Text', value: 'string' },
-  { title: 'Yes / no', value: 'boolean' },
-  { title: 'Whole number', value: 'confined_number' },
-  { title: 'Decimal number', value: 'confined_float' },
-  { title: 'One of a list', value: 'enum' },
-  { title: 'Date', value: 'date' },
+/**
+ * The kinds of attribute this builder offers when a new one is declared.
+ *
+ * The values are the spellings that travel on the wire and never change; only what each is called on screen
+ * is looked up, so a schema declared in Hebrew stores exactly the same types as one declared in English.
+ *
+ * The service accepts two kinds that are deliberately not here - an ultra enum and a multi field - because
+ * what they carry beyond the five keys every field has is not written down yet, and a picker that offered
+ * them would let somebody declare one that is missing whatever those are. They are still read, still shown,
+ * and still written back exactly as they were found; they simply cannot be invented here yet.
+ */
+const OFFERED_TYPES: SchemeFieldType[] = [
+  'string',
+  'boolean',
+  'confined_number',
+  'confined_float',
+  'enum',
+  'date',
 ]
+
+/** What each offered kind is called on screen. */
+const TYPE_LABELS: Record<string, string> = {
+  string: 'type.text',
+  boolean: 'type.boolean',
+  confined_number: 'type.integer',
+  confined_float: 'type.decimal',
+  enum: 'type.enum',
+  ultra_enum: 'type.ultraEnum',
+  date: 'type.date',
+  multi_field: 'type.multiField',
+}
+
+/**
+ * The kinds one field may be set to: the ones this builder offers, and the one the field already is.
+ *
+ * A field declared elsewhere as a kind this builder does not offer would otherwise open with an empty
+ * picker - and a picker showing nothing is one keystroke away from writing that nothing back, which is how
+ * a revision quietly turns somebody's multi field into a line of text. Its own kind is therefore always
+ * among the choices, so it displays as what it is and stays that unless somebody deliberately changes it.
+ */
+const typeOptions = (current: SchemeFieldType): { title: string; value: SchemeFieldType }[] => {
+  const offered = OFFERED_TYPES.includes(current) ? OFFERED_TYPES : [...OFFERED_TYPES, current]
+
+  return offered.map((type) => ({ title: translate(TYPE_LABELS[type] ?? type), value: type }))
+}
 </script>
 
 <script setup lang="ts">
-import { ENTER_TO_ADD_HINT, humanizeKey } from '@truth-platform/core-ui'
+import { humanizeKey, translate, useLanguage } from '@truth-platform/core-ui'
 
 import { isNumeric } from '@/utils/scheme'
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+const { t } = useLanguage()
 
 /**
  * Keep the display name following the key until somebody writes a name of their own.
@@ -175,14 +229,14 @@ const nameFor = (field: SchemeField, key: string): string =>
  */
 const keyProblem = (field: SchemeField, index: number): string | undefined => {
   if (field.key.trim().length === 0) {
-    return 'A key is required'
+    return t('schemas.keyRequired')
   }
 
   const duplicated = props.scheme.fields.some(
     (candidate, at) => at !== index && candidate.key.trim() === field.key.trim(),
   )
 
-  return duplicated ? 'Another attribute already uses this key' : undefined
+  return duplicated ? t('schemas.keyDuplicated') : undefined
 }
 
 /**
@@ -216,6 +270,9 @@ const addField = () => {
     {
       key: '',
       displayName: '',
+      displayNameHebrew: '',
+      /* A field declared here is this client's own, so it carries nothing it does not know about. */
+      extras: {},
       type: 'string',
       required: false,
       array: false,

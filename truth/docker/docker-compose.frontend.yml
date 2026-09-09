@@ -1,13 +1,14 @@
-# Truth's web client on its own, in front of an API that is already running somewhere else.
+# Truth's web client, in front of the assumptions API.
 #
-# The image holds nothing but the built page and an nginx that forwards /api on, so the only thing to say
-# is where that API is:
+# This is how Truth runs. There is no service in this repository: the API is yours and runs wherever you run
+# it, and the image here holds nothing but the built page and an nginx that forwards /api on to it. The only
+# thing to say is where it answers:
 #
 #   TRUTH_API_URL=http://10.0.0.7:8000/ docker compose -f docker-compose.frontend.yml up --build
 #
 # The trailing slash matters. It is what strips the /api the client prefixes, so that /api/assumption
 # arrives at the service as /assumption.
-name: truth-frontend
+name: truth
 
 services:
   web:

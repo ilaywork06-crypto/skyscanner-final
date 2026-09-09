@@ -5,6 +5,7 @@
   >
     <AgGridVue
       v-if="gridOptions !== null"
+      :key="languageKey"
       class="assumptions-grid__table"
       :grid-options="gridOptions"
       :column-defs="columnDefs"
@@ -82,10 +83,19 @@ import {
   parseColumnDefinitions,
   registerGridModules,
 } from '@truth-platform/ag-grid-ts'
-import { buildGridTheme, hashedToken, useAppTheme, useCellRenderers, useColumnFilters } from '@truth-platform/core-ui'
+import {
+  buildGridTheme,
+  gridIsRtl,
+  gridLanguageKey,
+  gridLocaleText,
+  hashedToken,
+  useAppTheme,
+  useCellRenderers,
+  useColumnFilters,
+} from '@truth-platform/core-ui'
 import type { ColDef, GridApi, GridOptions, GridReadyEvent } from 'ag-grid-community'
 import { AgGridVue } from 'ag-grid-vue3'
-import { computed, ref, shallowRef } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 
 import AssumptionDetailRow from '@/components/AssumptionDetailRow.vue'
 
@@ -102,6 +112,14 @@ const registry = useCellRenderers()
 const filterRegistry = useColumnFilters()
 const { colors, isDark } = useAppTheme()
 
+/*
+ * A table is thrown away and built again when the language changes, because the direction it is laid out
+ * in is read once, when it builds itself, and never looked at again. Everything else about a language
+ * change is reactive; this one is not, and keying the component is what turns a change AG Grid cannot make
+ * into one Vue makes for it.
+ */
+const languageKey = computed<string>(() => gridLanguageKey())
+
 const root = ref<HTMLElement | null>(null)
 const gridApi = shallowRef<GridApi<GridRow> | null>(null)
 
@@ -117,6 +135,12 @@ const context = computed<AssumptionGridContext>(() => ({
   expandedIds: props.expandedIds,
   toggleExpanded: (rowId: string) => emit('toggle-expanded', rowId),
   openRow: (rowId: string) => emit('open-row', rowId),
+  /*
+   * A panel narrows the very table it is open inside, through the same road a quick filter takes: the
+   * column's own filter model. Written anywhere else, the chip above the table and the filter in the header
+   * would disagree about what is being shown.
+   */
+  filterBy: (colId: string, values: string[]) => setColumnFilterValues(colId, values),
   /* Nothing in this API stores a file, so the two artifact actions are here only to satisfy the contract. */
   openArtifact: () => undefined,
   downloadArtifact: () => undefined,
@@ -163,7 +187,6 @@ const gridOptions = computed<GridOptions<GridRow> | null>(() => {
     return null
   }
 
-  const rowHeight = props.configuration.rowHeight
   const options = buildGridOptions({
     configuration: props.configuration,
     registry,
@@ -174,10 +197,20 @@ const gridOptions = computed<GridOptions<GridRow> | null>(() => {
   return {
     ...options,
     domLayout: 'autoHeight',
+    /* Read once, at construction - which is what `languageKey` above rebuilds the whole table for. */
+    enableRtl: gridIsRtl(),
+    localeText: gridLocaleText(),
     suppressNoRowsOverlay: true,
     fullWidthCellRenderer: AssumptionDetailRow,
+    /*
+     * Only the panels are measured here. An ordinary row is left to the table, which sizes it from the
+     * tallest cell in it - and that is the whole of what makes a wrapped assumption show all of its lines
+     * rather than the first one. Answering with the configured height for those rows, which is what this
+     * used to do, overrode every column that had asked to grow: the chip lists were already declaring
+     * `autoHeight` and were already being cut off by it.
+     */
     getRowHeight: (params) =>
-      isDetailRow(params.data) ? detailHeight(String(params.data?.parentId ?? '')) : rowHeight,
+      isDetailRow(params.data) ? detailHeight(String(params.data?.parentId ?? '')) : undefined,
   }
 })
 
@@ -217,6 +250,31 @@ const onGridReady = (event: GridReadyEvent<GridRow>) => {
   gridApi.value = event.api
 }
 
+/*
+ * Which rows are open reaches the cells through the context of the table, and a cell renderer reads that
+ * context at the moment it is drawn rather than watching it. Nothing therefore redraws the chevron of a row
+ * that was just opened: the panel appeared underneath it and the arrow went on pointing down, and every
+ * press after that was one behind.
+ *
+ * The context is written into the running grid first and the cells are redrawn against it, in that order.
+ * The wrapper pushes a changed context into the grid with a watcher of its own, and that watcher is created
+ * when the grid mounts - which is after this one - so redrawing first would redraw against the context of
+ * the previous state and leave the arrow exactly as wrong as it was before.
+ */
+watch(
+  () => props.expandedIds,
+  () => {
+    const api = gridApi.value
+    if (api === null) {
+      return
+    }
+
+    api.setGridOption('context', context.value)
+    api.refreshCells({ force: true })
+  },
+  { deep: true },
+)
+
 /**
  * Hand the ordering and the narrowing the table is running back to whoever owns the query.
  */
@@ -234,6 +292,28 @@ const onModelChanged = () => {
   emit('models-changed', sortModel, api.getFilterModel())
 }
 
+/**
+ * Narrow one column to a set of values.
+ *
+ * It is written into the table's own filter model rather than alongside it, so that the pill above the
+ * table, the chip under the toolbar and the filter in the header can never disagree about what is shown.
+ * Both the quick filters above the table and the panels opened underneath a row come through here.
+ */
+const setColumnFilterValues = (colId: string, values: string[]) => {
+  const api = gridApi.value
+  if (api === null) {
+    return
+  }
+
+  const model = { ...api.getFilterModel() }
+  if (values.length === 0) {
+    delete model[colId]
+  } else {
+    model[colId] = { filterType: SET_FILTER_TYPE, values: [...values] }
+  }
+  void api.setFilterModel(model)
+}
+
 defineExpose({
   /** Lift the narrowing one column is under, which is what a chip of the active filters undoes. */
   clearColumnFilter: (colId: string) => {
@@ -247,26 +327,8 @@ defineExpose({
   setColumnVisible: (colId: string, visible: boolean) => {
     gridApi.value?.setColumnsVisible([colId], visible)
   },
-  /**
-   * Narrow one column to a set of values, which is what a quick filter above the table does.
-   *
-   * It is written into the table's own filter model rather than alongside it, so that the pill above the
-   * table and the filter in its header can never disagree about what is being shown.
-   */
-  setColumnFilterValues: (colId: string, values: string[]) => {
-    const api = gridApi.value
-    if (api === null) {
-      return
-    }
-
-    const model = { ...api.getFilterModel() }
-    if (values.length === 0) {
-      delete model[colId]
-    } else {
-      model[colId] = { filterType: SET_FILTER_TYPE, values: [...values] }
-    }
-    void api.setFilterModel(model)
-  },
+  /** Narrow one column to a set of values, which is what a quick filter above the table does. */
+  setColumnFilterValues,
 })
 </script>
 

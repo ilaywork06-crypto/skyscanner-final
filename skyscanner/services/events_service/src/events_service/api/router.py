@@ -15,6 +15,7 @@ from events_service.api import (
     fields,
     grid,
     health,
+    imports,
     industries,
     platforms,
     revisions,
@@ -50,6 +51,7 @@ def build_api_router() -> APIRouter:
         templates,
         subscriptions,
         exports,
+        imports,
     )
     for module in modules:
         router.include_router(module.ROUTER)

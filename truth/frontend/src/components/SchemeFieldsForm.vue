@@ -4,7 +4,7 @@
       v-if="fields.length === 0"
       class="scheme-form__empty"
     >
-      This schema declares no attributes, so there is nothing to fill in for it.
+      {{ t('schemas.noAttributesToFill') }}
     </p>
 
     <div class="scheme-form__fields">
@@ -37,7 +37,7 @@
           :items="field.options"
           :multiple="field.array"
           :chips="field.array"
-          placeholder="Select"
+          :placeholder="t('form.select')"
           :error-messages="problems[field.key]"
           clearable
           @update:model-value="update(field.key, toJson($event))"
@@ -59,7 +59,7 @@
           v-else-if="field.array"
           :id="`field-${field.key}`"
           :model-value="asArray(values[field.key])"
-          :placeholder="ENTER_TO_ADD_HINT"
+          :placeholder="t('input.enterToAdd')"
           :error-messages="problems[field.key]"
           multiple
           chips
@@ -79,7 +79,7 @@
           :min="field.min ?? undefined"
           :max="field.max ?? undefined"
           :step="stepOf(field)"
-          placeholder="Type here…"
+          :placeholder="t('input.notesPlaceholder')"
           :error-messages="problems[field.key]"
           @update:model-value="update(field.key, castValue(field, $event))"
         />
@@ -115,12 +115,14 @@ const ANY_STEP = 'any'
 </script>
 
 <script setup lang="ts">
-import { ENTER_TO_ADD_HINT } from '@truth-platform/core-ui'
+import { useLanguage } from '@truth-platform/core-ui'
 
 import { isNumeric } from '@/utils/scheme'
 
 const props = withDefaults(defineProps<Props>(), { problems: () => ({}) })
 const emit = defineEmits<Emits>()
+
+const { t } = useLanguage()
 
 const inputType = (type: SchemeFieldType): string => INPUT_TYPES[type] ?? 'text'
 

@@ -12,7 +12,7 @@
     >
       <v-text-field
         v-model="term"
-        :placeholder="`Search ${headerName}`"
+        :placeholder="t('filters.searchIn', { field: headerName })"
         prepend-inner-icon="mdi-magnify"
         density="compact"
         variant="outlined"
@@ -30,7 +30,7 @@
         :disabled="matching.length === 0"
         @click="selectAllMatching"
       >
-        SELECT ALL
+        {{ t('filters.selectAll') }}
       </v-btn>
       <v-btn
         class="set-filter__action"
@@ -39,7 +39,7 @@
         :disabled="picked.length === 0"
         @click="clear"
       >
-        CLEAR
+        {{ t('filters.clear') }}
       </v-btn>
     </div>
 
@@ -61,7 +61,7 @@
         v-if="matching.length === 0"
         class="set-filter__empty"
       >
-        No value matches "{{ term }}".
+        {{ t('filters.noMatch', { term: term ?? '' }) }}
       </p>
     </div>
   </div>
@@ -97,10 +97,14 @@ interface SetFilterModel {
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
+import { useLanguage } from '../../composables/useLanguage'
+
 /** Past this many values the list is one a reader searches rather than one they simply read. */
 const SEARCHABLE_FROM = 8
 
 const props = defineProps<Props>()
+
+const { t } = useLanguage()
 
 /** The values currently ticked, which is the whole of the state this filter holds. */
 const picked = ref<string[]>([])
@@ -108,7 +112,7 @@ const term = ref<string>('')
 
 const options = computed<FilterOption[]>(() => props.params.options ?? [])
 
-const headerName = computed<string>(() => props.params.headerName ?? 'values')
+const headerName = computed<string>(() => props.params.headerName ?? t('filters.values'))
 
 const searchable = computed<boolean>(() => options.value.length >= SEARCHABLE_FROM)
 

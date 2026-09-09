@@ -99,8 +99,21 @@
         <v-card-text class="schema__dialog">
           <v-text-field
             v-model="draftName"
-            label="Name"
+            :label="t('schema.name')"
             @update:model-value="onNameChange"
+          />
+          <!--
+            What this field is called when the interface is read in Hebrew. A declaration that carries none
+            keeps the name it was declared under in both languages, which is the honest answer: the name is
+            the vocabulary of whoever declared it rather than a word this system ships, so there is nowhere
+            else a Hebrew one could come from.
+          -->
+          <v-text-field
+            v-model="draftNameHebrew"
+            :label="t('schema.nameHebrew')"
+            :hint="t('schema.nameHebrewHint')"
+            persistent-hint
+            dir="rtl"
           />
           <!--
             The key is where every value answering this field is actually stored - twice over, in the list
@@ -197,7 +210,7 @@
             v-if="draftType === 'enum'"
             v-model="draftOptions"
             label="Allowed values"
-            :hint="ENTER_TO_ADD_HINT"
+            :hint="t('input.enterToAdd')"
             persistent-hint
             multiple
             chips
@@ -271,7 +284,7 @@
                 v-model="dependency.values"
                 label="Values"
                 density="compact"
-                :hint="ENTER_TO_ADD_HINT"
+                :hint="t('input.enterToAdd')"
                 persistent-hint
                 multiple
                 chips
@@ -320,7 +333,7 @@
 
 <script lang="ts">
 import type { FieldType } from '@/models/common'
-import { slugify } from '@truth-platform/core-ui'
+import { slugify, useLanguage } from '@truth-platform/core-ui'
 import type { EntityType } from '@/models/entity'
 import type { DependencyOperator, FieldDefinition, FieldDependency } from '@truth-platform/core-ui'
 import type { RenameResult } from '@/requests/schema'
@@ -375,7 +388,8 @@ import {
   previewFieldRename,
   updateField,
 } from '@/requests/schema'
-import { ENTER_TO_ADD_HINT } from '@truth-platform/core-ui'
+
+const { t } = useLanguage()
 
 /*
  * The two halves of an entity form. Both are stored in the same place and both become columns of the entity
@@ -417,6 +431,7 @@ const renaming = ref<boolean>(false)
 const renamePreview = ref<RenameResult | null>(null)
 
 const draftName = ref<string>('')
+const draftNameHebrew = ref<string>('')
 const draftKey = ref<string>('')
 const draftType = ref<FieldType>('string')
 const draftSection = ref<FieldSection>('event')
@@ -644,6 +659,7 @@ const resetDraft = () => {
   renaming.value = false
   renamePreview.value = null
   draftName.value = ''
+  draftNameHebrew.value = ''
   draftKey.value = ''
   draftType.value = 'string'
   draftSection.value = section.value
@@ -668,6 +684,7 @@ const openEdit = (field: FieldDefinition) => {
   resetDraft()
   edited.value = field
   draftName.value = field.name
+  draftNameHebrew.value = field.metadata.name_he ?? ''
   draftKey.value = field.key
   draftType.value = field.type
   draftSection.value = field.scope === 'event' ? 'event' : field.additional ? 'additional' : 'own'
@@ -701,6 +718,7 @@ const startRename = async (): Promise<void> => {
 /** The descriptors a declaration renders with, which both writing and changing one hand over. */
 const draftMetadata = () => ({
   allowed_file_types: [],
+  name_he: draftNameHebrew.value.length > 0 ? draftNameHebrew.value : null,
   options: draftOptions.value,
   unit: null,
   description: draftDescription.value.length > 0 ? draftDescription.value : null,

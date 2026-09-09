@@ -5,7 +5,7 @@
     <div class="sky-page__content">
       <div class="industries__heading">
         <h1 class="industries__title">
-          Industries
+          {{ t('industries.title') }}
         </h1>
         <v-spacer />
         <v-btn
@@ -13,12 +13,12 @@
           prepend-icon="mdi-plus"
           @click="createOpen = true"
         >
-          INDUSTRY
+          {{ t('industries.new') }}
         </v-btn>
       </div>
 
       <p class="industries__note">
-        An industry holds the assumptions filed under it. Open one to read its own register.
+        {{ t('industries.note') }}
       </p>
 
       <div
@@ -35,7 +35,7 @@
         v-else-if="industries.length === 0"
         class="industries__empty"
       >
-        No industries have been created yet.
+        {{ t('industries.empty') }}
       </div>
 
       <div
@@ -58,9 +58,17 @@
           <div class="industries__count">
             {{ countOf(industry.name) }}
             <span class="industries__count-label">
-              {{ countOf(industry.name) === 1 ? 'assumption' : 'assumptions' }}
+              {{ countOf(industry.name) === 1 ? t('industries.one') : t('industries.many') }}
             </span>
           </div>
+          <!--
+            The listing of an assumption does not say which industries it belongs to, so a count is only
+            complete once every assumption has been read on its own.
+          -->
+          <span
+            v-if="completing"
+            class="industries__pending"
+          >{{ t('industries.counting') }}</span>
         </v-card>
       </div>
     </div>
@@ -73,36 +81,32 @@
 </template>
 
 <script setup lang="ts">
-import { UiChip, hashedToken, useSnackbar } from '@truth-platform/core-ui'
-import { onMounted, ref } from 'vue'
+import { UiChip, hashedToken, useLanguage, useSnackbar } from '@truth-platform/core-ui'
+import { computed, ref } from 'vue'
 
 import AppHeader from '@/components/AppHeader.vue'
 import CreateIndustryDialog from '@/components/CreateIndustryDialog.vue'
 import { useRegister } from '@/composables/useRegister'
-import { readIndustriesWithCounts } from '@/requests/industries'
 
-const { industries, loading, load } = useRegister()
+const { industries, assumptions, loading, completing, load } = useRegister()
 const { reportError } = useSnackbar()
+const { t } = useLanguage()
 
 const createOpen = ref<boolean>(false)
 
-/*
- * How many assumptions name each industry, counted by the service in one pass over the register.
- *
- * This used to be counted here, over the assumptions the client had read - which made the number climb while
- * the page was open and settle on the truth only once the last reading had landed. It is asked for now, and
- * it is asked for separately from the industries themselves because counting is the expensive half.
+/**
+ * How many assumptions name each industry, counted over the readings that have arrived.
  */
-const counts = ref<Record<string, number>>({})
+const counts = computed<Record<string, number>>(() => {
+  const collected: Record<string, number> = {}
+  assumptions.value.forEach((row) => {
+    row.detail?.industries.forEach((industry) => {
+      collected[industry.name] = (collected[industry.name] ?? 0) + 1
+    })
+  })
 
-const loadCounts = async () => {
-  try {
-    const counted = await readIndustriesWithCounts()
-    counts.value = Object.fromEntries(counted.map((industry) => [industry.name, industry.assumption_count ?? 0]))
-  } catch (error) {
-    reportError(error)
-  }
-}
+  return collected
+})
 
 const countOf = (name: string): number => counts.value[name] ?? 0
 
@@ -112,15 +116,10 @@ const countOf = (name: string): number => counts.value[name] ?? 0
 const onCreated = async () => {
   try {
     await load(true)
-    await loadCounts()
   } catch (error) {
     reportError(error)
   }
 }
-
-onMounted(() => {
-  void loadCounts()
-})
 </script>
 
 <style scoped>

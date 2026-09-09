@@ -7,7 +7,7 @@
   -->
   <span
     class="sky-info-icon"
-    :aria-label="label"
+    :aria-label="label.length > 0 ? label : t('value.more')"
     tabindex="0"
   >
     <v-icon
@@ -36,10 +36,13 @@ const ICON = 'mdi-information-outline'
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../composables/useLanguage'
 import UiTooltip from './UiTooltip.vue'
 
+const { t } = useLanguage()
+
 withDefaults(defineProps<Props>(), {
-  label: 'More information',
+  label: '',
   size: 'x-small',
   location: 'top',
 })

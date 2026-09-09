@@ -7,8 +7,8 @@
     >
       <v-text-field
         :model-value="note"
-        :placeholder="placeholder"
-        :aria-label="`Note ${index + 1}`"
+        :placeholder="placeholder.length > 0 ? placeholder : t('input.notesPlaceholder')"
+        :aria-label="t('input.note', { number: index + 1 })"
         density="comfortable"
         hide-details
         @update:model-value="replace(index, $event)"
@@ -31,7 +31,7 @@
         :disabled="!canAdd"
         @click="add"
       >
-        {{ addLabel }}
+        {{ addLabel.length > 0 ? addLabel : t('input.addNote') }}
       </v-btn>
     </div>
   </div>
@@ -66,10 +66,14 @@ const SEPARATOR = '\n'
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { useLanguage } from '../composables/useLanguage'
+
 const props = withDefaults(defineProps<Props>(), {
-  placeholder: 'Type here...',
-  addLabel: 'ADD NOTE',
+  placeholder: '',
+  addLabel: '',
 })
+
+const { t } = useLanguage()
 const emit = defineEmits<Emits>()
 
 const rows = computed<string[]>(() => props.modelValue.split(SEPARATOR))

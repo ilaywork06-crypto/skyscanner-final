@@ -11,13 +11,6 @@
 interface Industry {
   id: string
   name: string
-  /**
-   * How many assumptions name this industry, when the listing was asked to count them.
-   *
-   * Counting is a pass over the whole register, so the service only does it when asked. Every other reading
-   * of an industry leaves this out, which is why it is optional rather than zero.
-   */
-  assumption_count?: number
 }
 
 /** What creating an industry asks for. */

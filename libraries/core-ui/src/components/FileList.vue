@@ -39,7 +39,7 @@
           <v-btn
             class="file-list__file"
             variant="text"
-            :aria-label="`Open ${file.name}`"
+            :aria-label="t('files.openNamed', { name: file.name })"
             @click.stop="emit('open', file)"
           >
             <v-icon
@@ -130,10 +130,13 @@ interface FileGroup {
 </script>
 
 <script setup lang="ts">
+import { useLanguage } from '../composables/useLanguage'
 import { computed, ref } from 'vue'
 
 import HighlightedText from './HighlightedText.vue'
 import { matchesTerm } from '../utils/highlight'
+
+const { t } = useLanguage()
 
 const props = withDefaults(defineProps<Props>(), {
   startOpen: false,
